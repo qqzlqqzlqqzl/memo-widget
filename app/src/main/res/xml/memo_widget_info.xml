@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Glance-backed AppWidget. initialLayout points at the stock Glance
+  placeholder layout (bundled with androidx.glance:glance-appwidget),
+  which Glance swaps out on first update with its Compose content.
+
+  updatePeriodMillis = 0: the app pushes updates after writes;
+  AlarmManager-based auto-updates are unnecessary (min would be 30m anyway).
+
+  resizeMode "horizontal|vertical" and target cells 2x2 keep the widget
+  usable in dense launcher grids while allowing the user to expand it.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:description="@string/widget_description"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />

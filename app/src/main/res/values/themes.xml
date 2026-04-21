@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Base theme: Material 3, edge-to-edge, transparent system bars.
+      The actual Compose content is styled via MaterialTheme in ui/theme/Theme.kt (Agent C),
+      which also handles dynamic color and dark-mode switching at runtime.
+      This XML theme exists to (a) style the Activity window before Compose inflates,
+      and (b) satisfy AndroidManifest's android:theme requirement.
+    -->
+    <style name="Theme.MemoWidget" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">?attr/colorSurface</item>
+    </style>
+
+    <!-- Transparent launcher splash (Android 12+) -->
+    <style name="Theme.MemoWidget.Starting" parent="Theme.MemoWidget">
+        <item name="android:windowSplashScreenBackground">?attr/colorSurface</item>
+    </style>
+</resources>

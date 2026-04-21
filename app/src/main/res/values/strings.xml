@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App / launcher -->
+    <string name="app_name">Memo</string>
+
+    <!-- Widget -->
+    <string name="widget_label">Memo</string>
+    <string name="widget_description">Quick-jot memos to your GitHub repo</string>
+    <string name="widget_add_memo">+ New memo</string>
+    <string name="widget_empty">No memos today yet</string>
+    <string name="widget_not_configured">Open app to set up</string>
+
+    <!-- Edit screen -->
+    <string name="edit_title">New memo</string>
+    <string name="edit_hint">What\'s on your mind?</string>
+    <string name="edit_save">Save</string>
+    <string name="edit_cancel">Cancel</string>
+    <string name="edit_saving">Saving…</string>
+    <string name="edit_saved">Saved</string>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_github">GitHub</string>
+    <string name="settings_pat">Personal Access Token</string>
+    <string name="settings_pat_hint">Scope: repo (private) or public_repo</string>
+    <string name="settings_owner">Owner</string>
+    <string name="settings_owner_hint">GitHub username or org</string>
+    <string name="settings_repo">Repository</string>
+    <string name="settings_repo_hint">e.g. memos</string>
+    <string name="settings_branch">Branch</string>
+    <string name="settings_path_template">Path template</string>
+    <string name="settings_path_template_hint">Placeholders: {yyyy} {MM} {dd}</string>
+    <string name="settings_save">Save</string>
+    <string name="settings_test">Test connection</string>
+
+    <!-- Error messages -->
+    <string name="err_not_configured">Please configure your GitHub token first</string>
+    <string name="err_unauthorized">Invalid token or insufficient scope</string>
+    <string name="err_network">Network error — check your connection</string>
+    <string name="err_conflict">File changed on server, please retry</string>
+    <string name="err_unknown">Something went wrong</string>
+</resources>

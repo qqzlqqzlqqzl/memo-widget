@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Neutral palette used by the widget host background tint -->
+    <color name="widget_background">#FFFAFAFA</color>
+    <color name="widget_background_dark">#FF121212</color>
+
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
