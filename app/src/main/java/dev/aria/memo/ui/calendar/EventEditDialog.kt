@@ -51,7 +51,7 @@ fun EventEditDialog(
     initialDate: LocalDate,
     event: EventEntity?,
     onDismiss: () -> Unit,
-    onSave: (summary: String, startMs: Long, endMs: Long, rrule: String?) -> Unit,
+    onSave: (summary: String, startMs: Long, endMs: Long, rrule: String?, reminderMinutesBefore: Int?) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     val zone = remember { ZoneId.systemDefault() }
@@ -87,6 +87,9 @@ fun EventEditDialog(
     val initialRrule = event?.rrule
     var rrule by rememberSaveable(event?.uid) { mutableStateOf(initialRrule) }
 
+    // P4.1: reminder (minutes before start). null = no reminder.
+    var reminder by rememberSaveable(event?.uid) { mutableStateOf(event?.reminderMinutesBefore) }
+
     val title = if (event == null) "新建日程" else "编辑日程"
 
     val startInstant = baseDate.atTime(startHour, startMin).atZone(zone).toInstant()
@@ -98,7 +101,7 @@ fun EventEditDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSave(summary.trim(), startInstant.toEpochMilli(), endInstant.toEpochMilli(), rrule)
+                    onSave(summary.trim(), startInstant.toEpochMilli(), endInstant.toEpochMilli(), rrule, reminder)
                 },
                 enabled = summary.isNotBlank() && !endBeforeStart,
             ) { Text("保存") }
@@ -153,10 +156,19 @@ fun EventEditDialog(
                     )
                 }
                 // P4: recurrence chips
+                Text("重复", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RecurrenceChip(label = "不重复", selected = rrule.isNullOrBlank()) { rrule = null }
                     RecurrenceChip(label = "每周", selected = rrule == "FREQ=WEEKLY") { rrule = "FREQ=WEEKLY" }
                     RecurrenceChip(label = "每月", selected = rrule == "FREQ=MONTHLY") { rrule = "FREQ=MONTHLY" }
+                }
+                // P4.1: reminder chips
+                Text("提醒", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RecurrenceChip(label = "无", selected = reminder == null) { reminder = null }
+                    RecurrenceChip(label = "5 分钟前", selected = reminder == 5) { reminder = 5 }
+                    RecurrenceChip(label = "15 分钟前", selected = reminder == 15) { reminder = 15 }
+                    RecurrenceChip(label = "1 小时前", selected = reminder == 60) { reminder = 60 }
                 }
             }
         },

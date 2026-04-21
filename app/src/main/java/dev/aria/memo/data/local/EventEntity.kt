@@ -37,4 +37,9 @@ data class EventEntity(
      * state bounded; rendering beyond that rolls at the next pull.
      */
     val rrule: String? = null,
+    /**
+     * P4.1 event reminders. Non-null value = minutes before [startEpochMs] at
+     * which the app posts a local notification. null = no reminder.
+     */
+    val reminderMinutesBefore: Int? = null,
 )

@@ -80,16 +80,31 @@ class CalendarViewModel(
 
     fun selectDate(date: LocalDate) { _selected.value = date }
 
-    fun createEvent(summary: String, startMs: Long, endMs: Long, rrule: String?, onDone: () -> Unit = {}) {
+    fun createEvent(
+        summary: String,
+        startMs: Long,
+        endMs: Long,
+        rrule: String?,
+        reminderMinutesBefore: Int?,
+        onDone: () -> Unit = {},
+    ) {
         viewModelScope.launch {
-            eventRepo.create(summary, startMs, endMs, rrule = rrule)
+            eventRepo.create(summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
             onDone()
         }
     }
 
-    fun updateEvent(uid: String, summary: String, startMs: Long, endMs: Long, rrule: String?, onDone: () -> Unit = {}) {
+    fun updateEvent(
+        uid: String,
+        summary: String,
+        startMs: Long,
+        endMs: Long,
+        rrule: String?,
+        reminderMinutesBefore: Int?,
+        onDone: () -> Unit = {},
+    ) {
         viewModelScope.launch {
-            eventRepo.update(uid, summary, startMs, endMs, rrule = rrule)
+            eventRepo.update(uid, summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
             onDone()
         }
     }

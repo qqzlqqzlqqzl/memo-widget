@@ -151,8 +151,8 @@ fun CalendarScreen(
             initialDate = state.selected,
             event = null,
             onDismiss = { showAddDialog = false },
-            onSave = { summary, startMs, endMs, rrule ->
-                viewModel.createEvent(summary, startMs, endMs, rrule) { showAddDialog = false }
+            onSave = { summary, startMs, endMs, rrule, reminder ->
+                viewModel.createEvent(summary, startMs, endMs, rrule, reminder) { showAddDialog = false }
             },
             onDelete = null,
         )
@@ -162,8 +162,8 @@ fun CalendarScreen(
             initialDate = state.selected,
             event = ev,
             onDismiss = { editingEvent = null },
-            onSave = { summary, startMs, endMs, rrule ->
-                viewModel.updateEvent(ev.uid, summary, startMs, endMs, rrule) { editingEvent = null }
+            onSave = { summary, startMs, endMs, rrule, reminder ->
+                viewModel.updateEvent(ev.uid, summary, startMs, endMs, rrule, reminder) { editingEvent = null }
             },
             onDelete = {
                 viewModel.deleteEvent(ev.uid) { editingEvent = null }

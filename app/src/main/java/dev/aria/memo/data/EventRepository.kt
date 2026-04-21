@@ -5,6 +5,7 @@ import dev.aria.memo.data.ics.IcsCodec
 import dev.aria.memo.data.local.EventDao
 import dev.aria.memo.data.local.EventEntity
 import dev.aria.memo.data.sync.SyncScheduler
+import dev.aria.memo.notify.AlarmScheduler
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -38,6 +39,7 @@ class EventRepository(
         endMs: Long,
         allDay: Boolean = false,
         rrule: String? = null,
+        reminderMinutesBefore: Int? = null,
     ): MemoResult<EventEntity> {
         val config = settings.current()
         if (!config.isConfigured) return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "not configured")
@@ -54,9 +56,12 @@ class EventRepository(
             remoteUpdatedAt = null,
             dirty = true,
             rrule = rrule,
+            reminderMinutesBefore = reminderMinutesBefore,
         )
         dao.upsert(entity)
         SyncScheduler.enqueuePush(appContext)
+        // M4 fix: alarm scheduling must not tear down a successful event write.
+        runCatching { AlarmScheduler.scheduleForEvent(appContext, entity) }
         return MemoResult.Ok(entity)
     }
 
@@ -66,6 +71,7 @@ class EventRepository(
         startMs: Long,
         endMs: Long,
         rrule: String? = null,
+        reminderMinutesBefore: Int? = null,
     ): MemoResult<EventEntity> {
         val existing = dao.get(uid) ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "event not found")
         val updated = existing.copy(
@@ -73,17 +79,20 @@ class EventRepository(
             startEpochMs = startMs,
             endEpochMs = endMs,
             rrule = rrule,
+            reminderMinutesBefore = reminderMinutesBefore,
             localUpdatedAt = System.currentTimeMillis(),
             dirty = true,
         )
         dao.upsert(updated)
         SyncScheduler.enqueuePush(appContext)
+        runCatching { AlarmScheduler.scheduleForEvent(appContext, updated) }
         return MemoResult.Ok(updated)
     }
 
     suspend fun delete(uid: String): MemoResult<Unit> {
         dao.tombstone(uid, System.currentTimeMillis())
         SyncScheduler.enqueuePush(appContext)
+        runCatching { AlarmScheduler.cancelForUid(appContext, uid) }
         return MemoResult.Ok(Unit)
     }
 

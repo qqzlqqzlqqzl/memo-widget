@@ -117,7 +117,19 @@ class PullWorker(
                             if (localByPath != null && localByPath.uid != decoded.uid) {
                                 eventDao.hardDelete(localByPath.uid)
                             }
-                            eventDao.upsert(decoded)
+                            // S1 fix: reminder is a local-only preference (not in .ics).
+                            // Preserve whatever the user set locally, otherwise the first
+                            // remote edit to the event would silently wipe every device's
+                            // reminder back to null.
+                            val merged = decoded.copy(
+                                reminderMinutesBefore = localByPath?.reminderMinutesBefore
+                                    ?: decoded.reminderMinutesBefore,
+                            )
+                            eventDao.upsert(merged)
+                            // Keep AlarmManager in sync with the merged row.
+                            dev.aria.memo.notify.AlarmScheduler.scheduleForEvent(
+                                applicationContext, merged
+                            )
                         }
                         is MemoResult.Err -> when (fileRes.code) {
                             ErrorCode.NETWORK -> anyNetwork = true
@@ -125,10 +137,14 @@ class PullWorker(
                         }
                     }
                 }
-                // Drop local events that remote no longer has (unless dirty, in which case user still has pending work).
+                // Drop local events that remote no longer has (unless dirty, in which case
+                // user still has pending work). M2 fix: cancel the paired alarm too.
                 for (local in eventDao.snapshotAll()) {
                     if (local.dirty || local.tombstoned) continue
-                    if (local.filePath !in remotePaths) eventDao.hardDelete(local.uid)
+                    if (local.filePath !in remotePaths) {
+                        dev.aria.memo.notify.AlarmScheduler.cancelForUid(applicationContext, local.uid)
+                        eventDao.hardDelete(local.uid)
+                    }
                 }
             }
             is MemoResult.Err -> when (res.code) {
