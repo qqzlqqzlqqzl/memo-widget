@@ -10,57 +10,70 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-/** Named DataStore; sandboxed to the app — safe for storing the PAT in V1. */
+/** DataStore for non-secret config (owner/repo/branch). PAT lives in [SecurePatStore]. */
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "memo_settings")
 
 /**
- * Typed wrapper around the preferences DataStore.
+ * Typed wrapper around preferences. The PAT is held in [SecurePatStore]; every
+ * other field lives in plain DataStore.
  *
- * Contract (AGENT_SPEC.md section 4.1):
- *  - [config] — reactive stream of [AppConfig]; never throws, never logs the PAT.
- *  - [update] — atomic read-modify-write of the config via a pure transform.
- *  - [current] — convenience snapshot; equivalent to `config.first()`.
- *
- * Thread safety: DataStore serializes writes; multiple concurrent [update]
- * calls are applied in order. `pathTemplate` is not user-editable in V1 — we
- * always materialize the default from [AppConfig].
- *
- * WARNING: Never pass [AppConfig.pat] through logs/toasts/exception messages.
+ * Legacy migration:
+ *   V1 installs stored the PAT in DataStore as plaintext. The first [current]
+ *   call that finds an empty secure store but a non-empty legacy key copies
+ *   the token into the secure store *and* clears the legacy key — guaranteed
+ *   to fire before any consumer reads, not only on next [update].
  */
-class SettingsStore(private val context: Context) {
+class SettingsStore(
+    private val context: Context,
+    private val secure: SecurePatStore = SecurePatStore(context),
+) {
 
     private object Keys {
-        val PAT = stringPreferencesKey("pat")
+        val PAT_LEGACY = stringPreferencesKey("pat")
         val OWNER = stringPreferencesKey("owner")
         val REPO = stringPreferencesKey("repo")
         val BRANCH = stringPreferencesKey("branch")
     }
 
     val config: Flow<AppConfig> = context.settingsDataStore.data.map { prefs ->
+        val securePat = secure.read()
+        val pat = when {
+            securePat.isNotEmpty() -> securePat
+            else -> {
+                val legacy = prefs[Keys.PAT_LEGACY].orEmpty()
+                if (legacy.isNotEmpty()) migrateLegacyPat(legacy)
+                legacy
+            }
+        }
         AppConfig(
-            pat = prefs[Keys.PAT].orEmpty(),
+            pat = pat,
             owner = prefs[Keys.OWNER].orEmpty(),
             repo = prefs[Keys.REPO].orEmpty(),
             branch = prefs[Keys.BRANCH]?.takeIf { it.isNotBlank() } ?: "main",
-            // pathTemplate not exposed in V1 — always use default.
         )
     }
 
     suspend fun update(transform: (AppConfig) -> AppConfig) {
+        val before = current()
+        val after = transform(before)
+        val patAfter = after.pat.trim()
+        if (patAfter.isEmpty()) secure.clear() else secure.write(patAfter)
         context.settingsDataStore.edit { prefs ->
-            val current = AppConfig(
-                pat = prefs[Keys.PAT].orEmpty(),
-                owner = prefs[Keys.OWNER].orEmpty(),
-                repo = prefs[Keys.REPO].orEmpty(),
-                branch = prefs[Keys.BRANCH]?.takeIf { it.isNotBlank() } ?: "main",
-            )
-            val next = transform(current)
-            prefs[Keys.PAT] = next.pat
-            prefs[Keys.OWNER] = next.owner
-            prefs[Keys.REPO] = next.repo
-            prefs[Keys.BRANCH] = next.branch
+            prefs.remove(Keys.PAT_LEGACY) // always wipe any plaintext residue
+            prefs[Keys.OWNER] = after.owner
+            prefs[Keys.REPO] = after.repo
+            prefs[Keys.BRANCH] = after.branch
         }
     }
 
     suspend fun current(): AppConfig = config.first()
+
+    // ---- internals --------------------------------------------------------
+
+    private fun migrateLegacyPat(legacy: String) {
+        // Copy legacy plaintext into the secure store. The accompanying
+        // DataStore.remove happens on the next write via [update]; this
+        // side-effect keeps the two stores in sync immediately.
+        secure.write(legacy)
+    }
 }

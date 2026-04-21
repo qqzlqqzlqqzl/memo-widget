@@ -3,21 +3,28 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "dev.aria.memo"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "dev.aria.memo"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        targetSdk = 35
+        versionCode = 2
+        versionName = "0.2.0-p1"
 
         vectorDrawables {
             useSupportLibrary = true
+        }
+
+        // Room schema export so migrations can be diffed in git.
+        ksp {
+            arg("room.schemaLocation", "$projectDir/schemas")
+            arg("room.incremental", "true")
         }
     }
 
@@ -62,6 +69,12 @@ android {
             )
         }
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -75,8 +88,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
 
-    // DataStore
+    // DataStore (non-secret config)
     implementation(libs.androidx.datastore.preferences)
+
+    // Security — EncryptedSharedPreferences for the PAT
+    implementation(libs.androidx.security.crypto)
 
     // Compose (BOM pins version for all compose-* modules)
     implementation(platform(libs.compose.bom))
@@ -88,9 +104,20 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     debugImplementation(libs.compose.ui.tooling)
 
+    // Navigation (single-activity Compose nav)
+    implementation(libs.androidx.navigation.compose)
+
     // Glance (AppWidget)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
+
+    // Room (local database, single source of truth)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    // WorkManager (background sync)
+    implementation(libs.androidx.workmanager)
 
     // Ktor
     implementation(libs.ktor.client.core)
