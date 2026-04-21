@@ -3,6 +3,7 @@ package dev.aria.memo.data
 import android.content.Context
 import dev.aria.memo.data.local.NoteDao
 import dev.aria.memo.data.local.NoteFileEntity
+import dev.aria.memo.data.sync.PathLocker
 import dev.aria.memo.data.sync.SyncScheduler
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
@@ -44,35 +45,39 @@ class MemoRepository(
         val time = now.toLocalTime()
         val path = config.filePathFor(date)
 
-        // 1. Local-first: merge new entry into whatever we have cached.
-        val existing = dao.get(path)
-        val newContent = buildNewContent(existing?.content, date, time, body)
-        val nowMs = System.currentTimeMillis()
-        dao.upsert(
-            NoteFileEntity(
-                path = path,
-                date = date,
-                content = newContent,
-                githubSha = existing?.githubSha,
-                localUpdatedAt = nowMs,
-                remoteUpdatedAt = existing?.remoteUpdatedAt,
-                dirty = true,
+        // Fixes #6: hold the per-path lock across read-merge-write-push so a
+        // parallel PushWorker cannot race us on the same SHA.
+        return PathLocker.withLock(path) {
+            // 1. Local-first: merge the new entry into whatever we have cached.
+            val existing = dao.get(path)
+            val newContent = buildNewContent(existing?.content, date, time, body)
+            val nowMs = System.currentTimeMillis()
+            dao.upsert(
+                NoteFileEntity(
+                    path = path,
+                    date = date,
+                    content = newContent,
+                    githubSha = existing?.githubSha,
+                    localUpdatedAt = nowMs,
+                    remoteUpdatedAt = existing?.remoteUpdatedAt,
+                    dirty = true,
+                )
             )
-        )
 
-        // 2. Best-effort synchronous push. Whatever the outcome, enqueue the
-        //    background worker so a stuck dirty row always has a retry path.
-        val pushResult = pushFile(config, path, newContent, existing?.githubSha)
-        return when (pushResult) {
-            is MemoResult.Ok -> {
-                dao.markClean(path, pushResult.value, nowMs)
-                MemoResult.Ok(Unit)
-            }
-            is MemoResult.Err -> {
-                SyncScheduler.enqueuePush(appContext)
-                when (pushResult.code) {
-                    ErrorCode.NETWORK, ErrorCode.CONFLICT -> MemoResult.Ok(Unit)
-                    else -> pushResult
+            // 2. Best-effort synchronous push. Whatever the outcome, enqueue
+            //    the background worker so a stuck dirty row always has a retry.
+            val pushResult = pushFile(config, path, newContent, existing?.githubSha)
+            when (pushResult) {
+                is MemoResult.Ok -> {
+                    dao.markClean(path, pushResult.value, nowMs)
+                    MemoResult.Ok(Unit)
+                }
+                is MemoResult.Err -> {
+                    SyncScheduler.enqueuePush(appContext)
+                    when (pushResult.code) {
+                        ErrorCode.NETWORK, ErrorCode.CONFLICT -> MemoResult.Ok(Unit)
+                        else -> pushResult
+                    }
                 }
             }
         }

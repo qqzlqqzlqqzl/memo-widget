@@ -33,6 +33,9 @@ object IcsCodec {
         sb.append("SUMMARY:").append(escapeText(event.summary)).append("\r\n")
         sb.append("DTSTART:").append(UTC_FMT.format(Instant.ofEpochMilli(event.startEpochMs))).append("\r\n")
         sb.append("DTEND:").append(UTC_FMT.format(Instant.ofEpochMilli(event.endEpochMs))).append("\r\n")
+        if (!event.rrule.isNullOrBlank()) {
+            sb.append("RRULE:").append(event.rrule).append("\r\n")
+        }
         sb.append("END:VEVENT\r\n")
         sb.append("END:VCALENDAR\r\n")
         return sb.toString()
@@ -75,6 +78,7 @@ object IcsCodec {
             localUpdatedAt = parseIcsInstant(fields["DTSTAMP"]) ?: nowMs,
             remoteUpdatedAt = nowMs,
             dirty = false,
+            rrule = fields["RRULE"]?.takeIf { it.isNotBlank() },
         )
     }
 

@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [NoteFileEntity::class, EventEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -19,10 +19,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
 
     companion object {
-        /**
-         * v1 → v2: add the `events` table. Keeps every existing note_files
-         * row intact so users upgrading from P1 don't lose unpushed work.
-         */
+        /** v1 → v2: add the events table. */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -46,14 +43,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        /**
-         * v2 → v3: unique index on `events.filePath` (Fixes #2). Events are keyed
-         * on uid in Room, but the sync layer locates them by their remote path;
-         * the unique index keeps those two identities in lockstep.
-         */
+        /** v2 → v3: unique index on filePath (Fixes #2). */
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_events_filePath` ON `events` (`filePath`)")
+            }
+        }
+
+        /** v3 → v4: add rrule column for recurring events (P4). */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `events` ADD COLUMN `rrule` TEXT")
             }
         }
 
@@ -62,7 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
             AppDatabase::class.java,
             "memo.db",
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -50,7 +51,7 @@ fun EventEditDialog(
     initialDate: LocalDate,
     event: EventEntity?,
     onDismiss: () -> Unit,
-    onSave: (summary: String, startMs: Long, endMs: Long) -> Unit,
+    onSave: (summary: String, startMs: Long, endMs: Long, rrule: String?) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     val zone = remember { ZoneId.systemDefault() }
@@ -82,6 +83,10 @@ fun EventEditDialog(
     var endHour by rememberSaveable(event?.uid) { mutableStateOf(initialEndHour) }
     var endMin by rememberSaveable(event?.uid) { mutableStateOf(initialEndMin) }
 
+    // P4: simple RRULE picker — 不重复 / 每周 / 每月.
+    val initialRrule = event?.rrule
+    var rrule by rememberSaveable(event?.uid) { mutableStateOf(initialRrule) }
+
     val title = if (event == null) "新建日程" else "编辑日程"
 
     val startInstant = baseDate.atTime(startHour, startMin).atZone(zone).toInstant()
@@ -93,7 +98,7 @@ fun EventEditDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSave(summary.trim(), startInstant.toEpochMilli(), endInstant.toEpochMilli())
+                    onSave(summary.trim(), startInstant.toEpochMilli(), endInstant.toEpochMilli(), rrule)
                 },
                 enabled = summary.isNotBlank() && !endBeforeStart,
             ) { Text("保存") }
@@ -147,10 +152,17 @@ fun EventEditDialog(
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     )
                 }
+                // P4: recurrence chips
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RecurrenceChip(label = "不重复", selected = rrule.isNullOrBlank()) { rrule = null }
+                    RecurrenceChip(label = "每周", selected = rrule == "FREQ=WEEKLY") { rrule = "FREQ=WEEKLY" }
+                    RecurrenceChip(label = "每月", selected = rrule == "FREQ=MONTHLY") { rrule = "FREQ=MONTHLY" }
+                }
             }
         },
     )
 
+    // (the RecurrenceChip composable is defined at bottom of file)
     if (editingStart != null) {
         val pickerState = rememberTimePickerState(
             initialHour = if (editingStart == true) startHour else endHour,
@@ -176,4 +188,10 @@ fun EventEditDialog(
             text = { TimePicker(state = pickerState) },
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecurrenceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
 }

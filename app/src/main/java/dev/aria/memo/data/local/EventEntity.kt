@@ -29,4 +29,12 @@ data class EventEntity(
     val dirty: Boolean,
     /** Soft-delete flag so a deletion can be pushed (GitHub file removed) later. */
     val tombstoned: Boolean = false,
+    /**
+     * P4 recurring events. Minimal iCalendar RRULE subset:
+     *   - `FREQ=WEEKLY` — every 7 days starting at [startEpochMs]
+     *   - `FREQ=MONTHLY` — every calendar month on the same day-of-month
+     * null = single occurrence. Expansion horizon is 1 year forward to keep
+     * state bounded; rendering beyond that rolls at the next pull.
+     */
+    val rrule: String? = null,
 )

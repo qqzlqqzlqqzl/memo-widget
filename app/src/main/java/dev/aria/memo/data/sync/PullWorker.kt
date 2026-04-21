@@ -73,7 +73,10 @@ class PullWorker(
                 is MemoResult.Err -> when (res.code) {
                     ErrorCode.NOT_FOUND -> Unit
                     ErrorCode.NETWORK -> anyNetwork = true
-                    ErrorCode.UNAUTHORIZED -> return Result.success()
+                    ErrorCode.UNAUTHORIZED -> {
+                        SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, "GitHub 拒绝访问"))
+                        return Result.success()
+                    }
                     else -> Unit
                 }
             }
@@ -84,13 +87,25 @@ class PullWorker(
             is MemoResult.Ok -> {
                 val remote = res.value.filter { it.type == "file" && it.name.endsWith(".ics") }
                 val remotePaths = remote.map { it.path }.toSet()
+                // Fixes #10: budget the per-cycle work. Anything left over gets
+                // picked up on the next scheduled run (periodic 30 min) or the
+                // next explicit refresh, instead of draining the user's rate limit.
+                var pullsThisCycle = 0
                 // Pull new / changed. Fixes #2: locate by filePath (unique index),
                 // NOT by deriving uid from filename — a remote rename used to produce
                 // a duplicate row.
                 for (item in remote) {
+                    if (pullsThisCycle >= MAX_PULLS_PER_CYCLE) {
+                        // Stop fetching; the loop below still reconciles deletions,
+                        // and the leftovers come in on the next cycle. Mark as
+                        // "wants-retry" so WorkManager re-runs us sooner.
+                        anyNetwork = true
+                        break
+                    }
                     val localByPath = eventDao.getByPath(item.path)
                     if (localByPath?.dirty == true) continue
                     if (localByPath != null && localByPath.githubSha == item.sha) continue
+                    pullsThisCycle++
                     when (val fileRes = api.getFile(config, item.path)) {
                         is MemoResult.Ok -> {
                             val text = runCatching { fileRes.value.decodedContent }.getOrNull() ?: continue
@@ -174,6 +189,8 @@ class PullWorker(
 
     private companion object {
         const val WINDOW_DAYS = 14
+        /** Fixes #10: cap per-cycle event GETs to stay under GitHub rate limits. */
+        const val MAX_PULLS_PER_CYCLE = 50
         val NOTE_FILENAME = Regex("""\d{4}-\d{2}-\d{2}\.md""")
     }
 }

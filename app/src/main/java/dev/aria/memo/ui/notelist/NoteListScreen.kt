@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -30,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.aria.memo.data.MemoEntry
+import dev.aria.memo.data.sync.SyncStatus
+import dev.aria.memo.data.sync.SyncStatusBus
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,6 +44,8 @@ fun NoteListScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Fixes #11: surface sync failures so the user knows when pushes stop landing.
+    val syncStatus by SyncStatusBus.status.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier,
@@ -61,7 +67,42 @@ fun NoteListScreen(
             )
         },
     ) { inner ->
-        NoteListBody(state = state, onQueryChange = viewModel::onQueryChange, innerPadding = inner)
+        Column(
+            modifier = Modifier.padding(inner).fillMaxSize(),
+        ) {
+            SyncBanner(status = syncStatus, onDismiss = { SyncStatusBus.clearError() })
+            NoteListBody(
+                state = state,
+                onQueryChange = viewModel::onQueryChange,
+                innerPadding = PaddingValues(0.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SyncBanner(status: SyncStatus, onDismiss: () -> Unit) {
+    val err = status as? SyncStatus.Error ?: return
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "同步失败：${err.message}",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text("知道了", color = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        }
     }
 }
 

@@ -53,6 +53,7 @@ import com.kizitonwose.calendar.compose.rememberCalendarState
 import com.kizitonwose.calendar.core.CalendarDay
 import com.kizitonwose.calendar.core.DayPosition
 import com.kizitonwose.calendar.core.daysOfWeek
+import dev.aria.memo.data.ics.EventOccurrence
 import dev.aria.memo.data.local.EventEntity
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -73,6 +74,7 @@ fun CalendarScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingEvent by remember { mutableStateOf<EventEntity?>(null) }
+    val onEventClick: (EventOccurrence) -> Unit = { editingEvent = it.event }
 
     val currentMonth = remember { YearMonth.now() }
     val startMonth = remember { currentMonth.minusMonths(24) }
@@ -139,7 +141,7 @@ fun CalendarScreen(
             DaySheet(
                 date = state.selected,
                 summary = state.daySummary,
-                onEventClick = { editingEvent = it },
+                onEventClick = onEventClick,
             )
         }
     }
@@ -149,8 +151,8 @@ fun CalendarScreen(
             initialDate = state.selected,
             event = null,
             onDismiss = { showAddDialog = false },
-            onSave = { summary, startMs, endMs ->
-                viewModel.createEvent(summary, startMs, endMs) { showAddDialog = false }
+            onSave = { summary, startMs, endMs, rrule ->
+                viewModel.createEvent(summary, startMs, endMs, rrule) { showAddDialog = false }
             },
             onDelete = null,
         )
@@ -160,8 +162,8 @@ fun CalendarScreen(
             initialDate = state.selected,
             event = ev,
             onDismiss = { editingEvent = null },
-            onSave = { summary, startMs, endMs ->
-                viewModel.updateEvent(ev.uid, summary, startMs, endMs) { editingEvent = null }
+            onSave = { summary, startMs, endMs, rrule ->
+                viewModel.updateEvent(ev.uid, summary, startMs, endMs, rrule) { editingEvent = null }
             },
             onDelete = {
                 viewModel.deleteEvent(ev.uid) { editingEvent = null }
@@ -232,7 +234,7 @@ private fun DayCell(
 private fun DaySheet(
     date: LocalDate,
     summary: DaySummary,
-    onEventClick: (EventEntity) -> Unit,
+    onEventClick: (EventOccurrence) -> Unit,
 ) {
     val title = date.format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日 EEEE"))
     LazyColumn(
@@ -257,7 +259,10 @@ private fun DaySheet(
         }
         if (summary.events.isNotEmpty()) {
             item { SectionHeader("日程") }
-            items(summary.events.size, key = { "e-${summary.events[it].uid}" }) { idx ->
+            items(summary.events.size, key = { idx ->
+                val o = summary.events[idx]
+                "e-${o.event.uid}-${o.startEpochMs}"
+            }) { idx ->
                 EventRow(summary.events[idx], onClick = { onEventClick(summary.events[idx]) })
             }
         }
@@ -295,11 +300,12 @@ private fun SectionHeader(text: String) {
 }
 
 @Composable
-private fun EventRow(event: EventEntity, onClick: () -> Unit) {
+private fun EventRow(occ: EventOccurrence, onClick: () -> Unit) {
     val zone = remember { ZoneId.systemDefault() }
-    val start = remember(event) { Instant.ofEpochMilli(event.startEpochMs).atZone(zone) }
-    val end = remember(event) { Instant.ofEpochMilli(event.endEpochMs).atZone(zone) }
+    val start = remember(occ) { Instant.ofEpochMilli(occ.startEpochMs).atZone(zone) }
+    val end = remember(occ) { Instant.ofEpochMilli(occ.endEpochMs).atZone(zone) }
     val timeFmt = remember { DateTimeFormatter.ofPattern("HH:mm") }
+    val recurringMark = if (!occ.event.rrule.isNullOrBlank()) " 🔁" else ""
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
         shape = RoundedCornerShape(8.dp),
@@ -309,16 +315,16 @@ private fun EventRow(event: EventEntity, onClick: () -> Unit) {
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(
-                text = "${start.format(timeFmt)} – ${end.format(timeFmt)}",
+                text = "${start.format(timeFmt)} – ${end.format(timeFmt)}$recurringMark",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                text = event.summary,
+                text = occ.event.summary,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
-            if (event.dirty) {
+            if (occ.event.dirty) {
                 Text(
                     text = "待同步",
                     style = MaterialTheme.typography.labelSmall,

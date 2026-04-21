@@ -32,7 +32,13 @@ class EventRepository(
 
     suspend fun get(uid: String): EventEntity? = dao.get(uid)
 
-    suspend fun create(summary: String, startMs: Long, endMs: Long, allDay: Boolean = false): MemoResult<EventEntity> {
+    suspend fun create(
+        summary: String,
+        startMs: Long,
+        endMs: Long,
+        allDay: Boolean = false,
+        rrule: String? = null,
+    ): MemoResult<EventEntity> {
         val config = settings.current()
         if (!config.isConfigured) return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "not configured")
         val uid = UUID.randomUUID().toString()
@@ -47,18 +53,26 @@ class EventRepository(
             localUpdatedAt = System.currentTimeMillis(),
             remoteUpdatedAt = null,
             dirty = true,
+            rrule = rrule,
         )
         dao.upsert(entity)
         SyncScheduler.enqueuePush(appContext)
         return MemoResult.Ok(entity)
     }
 
-    suspend fun update(uid: String, summary: String, startMs: Long, endMs: Long): MemoResult<EventEntity> {
+    suspend fun update(
+        uid: String,
+        summary: String,
+        startMs: Long,
+        endMs: Long,
+        rrule: String? = null,
+    ): MemoResult<EventEntity> {
         val existing = dao.get(uid) ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "event not found")
         val updated = existing.copy(
             summary = summary,
             startEpochMs = startMs,
             endEpochMs = endMs,
+            rrule = rrule,
             localUpdatedAt = System.currentTimeMillis(),
             dirty = true,
         )
