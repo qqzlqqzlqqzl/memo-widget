@@ -1,6 +1,7 @@
 package dev.aria.memo.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.time.LocalDate
 
@@ -12,8 +13,14 @@ import java.time.LocalDate
  * holds the full markdown body so the UI can parse `## HH:MM` entries
  * without another network call. `dirty` marks files whose local content
  * has diverged from what's on GitHub — the push worker picks these up.
+ *
+ * Fixes #29: index on `date` — calendar/today widget queries filter by date
+ * range, so a B-tree on this column turns those scans into seeks.
  */
-@Entity(tableName = "note_files")
+@Entity(
+    tableName = "note_files",
+    indices = [Index(value = ["date"])],
+)
 data class NoteFileEntity(
     @PrimaryKey val path: String,
     val date: LocalDate,

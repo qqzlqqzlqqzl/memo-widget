@@ -74,7 +74,13 @@ fun CalendarScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingEvent by remember { mutableStateOf<EventEntity?>(null) }
-    val onEventClick: (EventOccurrence) -> Unit = { editingEvent = it.event }
+    // Fixes #22: bump per open so EventEditDialog's rememberSaveable keys don't collide
+    // across back-to-back "new event" sessions (event?.uid is null in that case).
+    var dialogEpoch by remember { mutableStateOf(0) }
+    val onEventClick: (EventOccurrence) -> Unit = { occ ->
+        editingEvent = occ.event
+        dialogEpoch += 1
+    }
 
     val currentMonth = remember { YearMonth.now() }
     val startMonth = remember { currentMonth.minusMonths(24) }
@@ -118,7 +124,10 @@ fun CalendarScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { showAddDialog = true },
+                onClick = {
+                    dialogEpoch += 1
+                    showAddDialog = true
+                },
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 text = { Text("加日程") },
             )
@@ -155,6 +164,7 @@ fun CalendarScreen(
                 viewModel.createEvent(summary, startMs, endMs, rrule, reminder) { showAddDialog = false }
             },
             onDelete = null,
+            sessionKey = dialogEpoch,
         )
     }
     editingEvent?.let { ev ->
@@ -168,6 +178,7 @@ fun CalendarScreen(
             onDelete = {
                 viewModel.deleteEvent(ev.uid) { editingEvent = null }
             },
+            sessionKey = dialogEpoch,
         )
     }
 }

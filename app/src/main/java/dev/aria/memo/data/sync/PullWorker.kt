@@ -176,8 +176,18 @@ class PullWorker(
             }
         }
         val noteFiles = root.filter { it.type == "file" && NOTE_FILENAME.matches(it.name) }
+        // Fixes #19: cap bootstrap GETs per cycle. A repo with hundreds of
+        // historical notes would otherwise burn the user's GitHub rate budget
+        // in a single cold-start. Anything left over is picked up on the next
+        // scheduled run because we signal anyNetwork=true.
+        var pullsThisCycle = 0
         for (item in noteFiles) {
+            if (pullsThisCycle >= MAX_BOOTSTRAP_PULLS_PER_CYCLE) {
+                anyNetwork = true
+                break
+            }
             val date = runCatching { LocalDate.parse(item.name.removeSuffix(".md")) }.getOrNull() ?: continue
+            pullsThisCycle++
             when (val res = api.getFile(config, item.path)) {
                 is MemoResult.Ok -> {
                     val text = runCatching { res.value.decodedContent }.getOrNull() ?: continue
@@ -207,6 +217,8 @@ class PullWorker(
         const val WINDOW_DAYS = 14
         /** Fixes #10: cap per-cycle event GETs to stay under GitHub rate limits. */
         const val MAX_PULLS_PER_CYCLE = 50
+        /** Fixes #19: cap bootstrap note GETs per cycle for the same reason. */
+        const val MAX_BOOTSTRAP_PULLS_PER_CYCLE = 50
         val NOTE_FILENAME = Regex("""\d{4}-\d{2}-\d{2}\.md""")
     }
 }

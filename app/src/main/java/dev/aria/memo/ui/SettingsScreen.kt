@@ -1,5 +1,6 @@
 package dev.aria.memo.ui
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.aria.memo.notify.NotificationPermissionBus
 import dev.aria.memo.ui.theme.MemoTheme
 import kotlinx.coroutines.launch
 
@@ -59,6 +61,8 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var patVisible by remember { mutableStateOf(false) }
+    // Fixes #24: subscribe to the permission bus so denied state surfaces a guidance card.
+    val notificationDenied by NotificationPermissionBus.denied.collectAsStateWithLifecycle()
 
     // FLAG_SECURE is scoped to the moment the PAT is visible in plaintext.
     // Other tabs (notes list, calendar) remain screen-capture-friendly.
@@ -107,8 +111,19 @@ fun SettingsScreen(
             onSave = viewModel::save,
             onOpenEditor = onOpenEditor,
             innerPadding = innerPadding,
+            notificationDenied = notificationDenied,
+            onOpenNotificationSettings = { openAppNotificationSettings(ctx) },
         )
     }
+}
+
+private fun openAppNotificationSettings(ctx: android.content.Context) {
+    // Android 8+ deep-link to the app's notification channels page. Fixes #24.
+    val intent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+        putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    ctx.startActivity(intent)
 }
 
 @Composable
@@ -123,6 +138,8 @@ private fun SettingsContent(
     onSave: () -> Unit,
     onOpenEditor: () -> Unit,
     innerPadding: PaddingValues,
+    notificationDenied: Boolean = false,
+    onOpenNotificationSettings: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -132,6 +149,9 @@ private fun SettingsContent(
             .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (notificationDenied) {
+            NotificationPermissionCard(onOpenSettings = onOpenNotificationSettings)
+        }
         StatusCard(state = state)
 
         OutlinedTextField(
@@ -235,6 +255,33 @@ private fun StatusCard(state: SettingsUiState) {
                 text = "备注会追加到 ${state.owner.ifBlank { "<owner>" }}/${state.repo.ifBlank { "<repo>" }} 的 ${state.branch.ifBlank { "main" }} 分支",
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+    }
+}
+
+@Composable
+private fun NotificationPermissionCard(onOpenSettings: () -> Unit) {
+    // Fixes #24: user has denied POST_NOTIFICATIONS — reminders won't fire.
+    // Use a warm amber palette so it reads as "heads up", not "error".
+    val amber = androidx.compose.ui.graphics.Color(0xFFFFF4CC)
+    val onAmber = androidx.compose.ui.graphics.Color(0xFF5A4A00)
+    Card(
+        colors = CardDefaults.cardColors(containerColor = amber, contentColor = onAmber),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "通知权限未开启，日程提醒不会响",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "在系统设置里允许通知后，已排期的提醒就能按时响起。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(onClick = onOpenSettings) { Text("去系统设置") }
         }
     }
 }

@@ -14,10 +14,9 @@ import kotlinx.coroutines.launch
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // M3 fix: accept both BOOT_COMPLETED and LOCKED_BOOT_COMPLETED so the manifest
-        // and the handler stay consistent.
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
-            intent.action != Intent.ACTION_LOCKED_BOOT_COMPLETED) return
+        // App is not directBootAware, so the system will not deliver
+        // LOCKED_BOOT_COMPLETED — only handle the regular BOOT_COMPLETED action.
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val pending = goAsync()
         val appContext = context.applicationContext
         CoroutineScope(Dispatchers.Default).launch {

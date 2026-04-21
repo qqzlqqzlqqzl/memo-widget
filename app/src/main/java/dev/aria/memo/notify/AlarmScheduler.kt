@@ -28,7 +28,12 @@ object AlarmScheduler {
         val minutesBefore = event.reminderMinutesBefore ?: return
         if (event.tombstoned) return
         val now = System.currentTimeMillis()
-        val windowEnd = now + 365L * 86_400_000L
+        // Use a very large upper bound so long-horizon recurring events (MONTHLY/WEEKLY
+        // whose next occurrence lies beyond a 1-year window) still get their first
+        // alarm scheduled. EventExpander applies its own ABSOLUTE_HORIZON_DAYS cap,
+        // and we only consume firstOrNull here, so the window size has no perf cost.
+        // Half of Long.MAX_VALUE avoids any downstream overflow.
+        val windowEnd = Long.MAX_VALUE / 2
         val nextStart = nextOccurrenceStartMs(event, now, windowEnd) ?: return
         val fireAt = nextStart - minutesBefore * 60_000L
         if (fireAt <= now) return // occurrence is in the past or too close

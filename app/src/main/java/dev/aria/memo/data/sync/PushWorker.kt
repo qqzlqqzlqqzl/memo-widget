@@ -17,6 +17,11 @@ import java.util.Base64
  * Fixes #6: every note PUT happens inside [PathLocker.withLock] so a foreground
  * `appendToday` cannot race this worker on the same SHA.
  * Fixes #11: posts [SyncStatus] to [SyncStatusBus] so UI can surface errors.
+ * Fixes #21: wraps the whole body in try/finally so the UI can never get
+ * stranded on [SyncStatus.Syncing] if something unexpected aborts the worker.
+ * Fixes #27: a 409/422 CONFLICT on a note PUT is transparently re-attempted
+ * once after refreshing the remote SHA, because the common cause is a
+ * parallel push from another device rather than a semantic conflict.
  *
  * WorkManager may instantiate this Worker before Application.onCreate on a
  * cold boot; the idempotent [ServiceLocator.init] guards against that NPE.
@@ -26,7 +31,17 @@ class PushWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = try {
+        doWorkInner()
+    } finally {
+        // Fixes #21: if anything threw or an early return skipped the status
+        // emit below, clear the Syncing spinner so the UI doesn't hang.
+        if (SyncStatusBus.status.value is SyncStatus.Syncing) {
+            SyncStatusBus.emit(SyncStatus.Idle)
+        }
+    }
+
+    private suspend fun doWorkInner(): Result {
         ServiceLocator.init(applicationContext)
         val settings = ServiceLocator.settingsStore
         val api = ServiceLocator.api()
@@ -50,13 +65,39 @@ class PushWorker(
         for (row in pendingNotes) {
             val outcome = PathLocker.withLock(row.path) {
                 val encoded = Base64.getEncoder().encodeToString(row.content.toByteArray(Charsets.UTF_8))
-                val request = GhPutRequest(
-                    message = "memo: ${row.path}",
-                    content = encoded,
-                    branch = config.branch,
-                    sha = row.githubSha,
+                val firstAttempt = api.putFile(
+                    config,
+                    row.path,
+                    GhPutRequest(
+                        message = "memo: ${row.path}",
+                        content = encoded,
+                        branch = config.branch,
+                        sha = row.githubSha,
+                    ),
                 )
-                api.putFile(config, row.path, request)
+                // Fixes #27: one SHA-refresh retry for note conflicts. The
+                // normal cause is another device pushing between our last pull
+                // and this PUT; grabbing the fresh sha and replaying exactly
+                // once keeps convergence cheap without looping forever.
+                if (firstAttempt is MemoResult.Err && firstAttempt.code == ErrorCode.CONFLICT) {
+                    val refreshed = api.getFile(config, row.path)
+                    if (refreshed is MemoResult.Ok) {
+                        api.putFile(
+                            config,
+                            row.path,
+                            GhPutRequest(
+                                message = "memo: ${row.path}",
+                                content = encoded,
+                                branch = config.branch,
+                                sha = refreshed.value.sha,
+                            ),
+                        )
+                    } else {
+                        firstAttempt
+                    }
+                } else {
+                    firstAttempt
+                }
             }
             when (outcome) {
                 is MemoResult.Ok ->

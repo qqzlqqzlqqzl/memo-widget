@@ -53,6 +53,7 @@ fun EventEditDialog(
     onDismiss: () -> Unit,
     onSave: (summary: String, startMs: Long, endMs: Long, rrule: String?, reminderMinutesBefore: Int?) -> Unit,
     onDelete: (() -> Unit)?,
+    sessionKey: Int = 0,
 ) {
     val zone = remember { ZoneId.systemDefault() }
     val now = remember { LocalTime.now().withSecond(0).withNano(0) }
@@ -60,7 +61,13 @@ fun EventEditDialog(
         event?.let { Instant.ofEpochMilli(it.startEpochMs).atZone(zone).toLocalDate() } ?: initialDate
     }
 
-    var summary by rememberSaveable(event?.uid) { mutableStateOf(event?.summary.orEmpty()) }
+    // Fixes #22: for new events event?.uid is null, so a plain `rememberSaveable(null)`
+    // key would share the saver slot across consecutive "add" sessions and leak state
+    // from the previous open. Compose the key with a caller-provided sessionKey that
+    // bumps every time the dialog is re-opened.
+    val saveKey = "${event?.uid ?: "new"}-$sessionKey"
+
+    var summary by rememberSaveable(saveKey) { mutableStateOf(event?.summary.orEmpty()) }
 
     val (initialStartHour, initialStartMin) = remember(event) {
         if (event != null) {
@@ -77,18 +84,18 @@ fun EventEditDialog(
 
     // Fixes #4: rememberSaveable so a config change (rotate/theme) doesn't blow away
     // the picker the user is actively using.
-    var editingStart by rememberSaveable { mutableStateOf<Boolean?>(null) } // null = not showing picker, true = start, false = end
-    var startHour by rememberSaveable(event?.uid) { mutableStateOf(initialStartHour) }
-    var startMin by rememberSaveable(event?.uid) { mutableStateOf(initialStartMin) }
-    var endHour by rememberSaveable(event?.uid) { mutableStateOf(initialEndHour) }
-    var endMin by rememberSaveable(event?.uid) { mutableStateOf(initialEndMin) }
+    var editingStart by rememberSaveable(saveKey) { mutableStateOf<Boolean?>(null) } // null = not showing picker, true = start, false = end
+    var startHour by rememberSaveable(saveKey) { mutableStateOf(initialStartHour) }
+    var startMin by rememberSaveable(saveKey) { mutableStateOf(initialStartMin) }
+    var endHour by rememberSaveable(saveKey) { mutableStateOf(initialEndHour) }
+    var endMin by rememberSaveable(saveKey) { mutableStateOf(initialEndMin) }
 
-    // P4: simple RRULE picker — 不重复 / 每周 / 每月.
+    // P4: simple RRULE picker — 不重复 / 每周 / 每月 / 自定义.
     val initialRrule = event?.rrule
-    var rrule by rememberSaveable(event?.uid) { mutableStateOf(initialRrule) }
+    var rrule by rememberSaveable(saveKey) { mutableStateOf(initialRrule) }
 
     // P4.1: reminder (minutes before start). null = no reminder.
-    var reminder by rememberSaveable(event?.uid) { mutableStateOf(event?.reminderMinutesBefore) }
+    var reminder by rememberSaveable(saveKey) { mutableStateOf(event?.reminderMinutesBefore) }
 
     val title = if (event == null) "新建日程" else "编辑日程"
 
@@ -155,12 +162,28 @@ fun EventEditDialog(
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     )
                 }
-                // P4: recurrence chips
+                // P4: recurrence chips — the three canned chips plus a "自定义" fallback
+                // so a rrule we don't have a UI for (DAILY, YEARLY, COUNT=..., etc.) is
+                // still represented and preserved across edit (Fixes #23).
                 Text("重复", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                val isNone = rrule.isNullOrBlank()
+                val isWeekly = rrule == "FREQ=WEEKLY"
+                val isMonthly = rrule == "FREQ=MONTHLY"
+                val isCustom = !isNone && !isWeekly && !isMonthly
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RecurrenceChip(label = "不重复", selected = rrule.isNullOrBlank()) { rrule = null }
-                    RecurrenceChip(label = "每周", selected = rrule == "FREQ=WEEKLY") { rrule = "FREQ=WEEKLY" }
-                    RecurrenceChip(label = "每月", selected = rrule == "FREQ=MONTHLY") { rrule = "FREQ=MONTHLY" }
+                    RecurrenceChip(label = "不重复", selected = isNone) { rrule = null }
+                    RecurrenceChip(label = "每周", selected = isWeekly) { rrule = "FREQ=WEEKLY" }
+                    RecurrenceChip(label = "每月", selected = isMonthly) { rrule = "FREQ=MONTHLY" }
+                    // Tapping "自定义" is a no-op — it merely reflects that a non-preset
+                    // rrule is already in force; the raw rule text is shown below.
+                    RecurrenceChip(label = "自定义", selected = isCustom) { /* preserve rrule */ }
+                }
+                if (isCustom) {
+                    androidx.compose.material3.Text(
+                        text = rrule.orEmpty(),
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 // P4.1: reminder chips
                 Text("提醒", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)

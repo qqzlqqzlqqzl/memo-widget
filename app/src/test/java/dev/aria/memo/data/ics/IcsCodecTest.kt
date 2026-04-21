@@ -96,4 +96,40 @@ END:VCALENDAR
         val encoded = IcsCodec.encode(sample())
         assertTrue("must contain CRLF line separators", encoded.contains("\r\n"))
     }
+
+    @Test
+    fun `issue 28 — long chinese summary folds at 75 octets and unfolds round trip`() {
+        // 80 chinese chars × 3 UTF-8 octets each = 240 octets, well past the 75-octet cap.
+        val longSummary = "中文提醒一条很长的日程标题用来测试折行行为".repeat(4)
+        val event = sample(summary = longSummary)
+        val encoded = IcsCodec.encode(event)
+
+        // Fold must actually happen: continuation lines start with `"\r\n "`.
+        assertTrue(
+            "long SUMMARY must be folded with CRLF+space continuation",
+            encoded.contains("\r\n "),
+        )
+        // No single physical line may exceed 75 octets.
+        for (line in encoded.split("\r\n")) {
+            assertTrue(
+                "physical line exceeds 75 octets: ${line.toByteArray(Charsets.UTF_8).size} bytes",
+                line.toByteArray(Charsets.UTF_8).size <= 75,
+            )
+        }
+
+        val decoded = IcsCodec.decode(encoded, event.filePath, null, 0L)
+        assertNotNull(decoded)
+        assertEquals(longSummary, decoded!!.summary)
+    }
+
+    @Test
+    fun `issue 28 — rrule round trips even when value has separator characters`() {
+        // Currently produced RRULEs are simple, but the encoder must not corrupt
+        // arbitrary RRULE grammar (FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=10).
+        val recurring = sample().copy(rrule = "FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=10")
+        val encoded = IcsCodec.encode(recurring)
+        val decoded = IcsCodec.decode(encoded, recurring.filePath, null, 0L)
+        assertNotNull(decoded)
+        assertEquals("FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=10", decoded!!.rrule)
+    }
 }

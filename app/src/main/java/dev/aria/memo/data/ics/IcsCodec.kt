@@ -23,22 +23,31 @@ object IcsCodec {
 
     fun encode(event: EventEntity): String {
         val sb = StringBuilder()
-        sb.append("BEGIN:VCALENDAR\r\n")
-        sb.append("VERSION:2.0\r\n")
-        sb.append("PRODID:$PRODID\r\n")
-        sb.append("BEGIN:VEVENT\r\n")
+        appendLine(sb, "BEGIN:VCALENDAR")
+        appendLine(sb, "VERSION:2.0")
+        appendLine(sb, "PRODID:$PRODID")
+        appendLine(sb, "BEGIN:VEVENT")
         // Fixes #1: escape UID so `;` / `:` / `\` / `\n` in the UID survive a round trip.
-        sb.append("UID:").append(escapeText(event.uid)).append("\r\n")
-        sb.append("DTSTAMP:").append(UTC_FMT.format(Instant.ofEpochMilli(event.localUpdatedAt))).append("\r\n")
-        sb.append("SUMMARY:").append(escapeText(event.summary)).append("\r\n")
-        sb.append("DTSTART:").append(UTC_FMT.format(Instant.ofEpochMilli(event.startEpochMs))).append("\r\n")
-        sb.append("DTEND:").append(UTC_FMT.format(Instant.ofEpochMilli(event.endEpochMs))).append("\r\n")
+        appendLine(sb, "UID:${escapeText(event.uid)}")
+        appendLine(sb, "DTSTAMP:${UTC_FMT.format(Instant.ofEpochMilli(event.localUpdatedAt))}")
+        // Fixes #28: apply RFC 5545 line folding to SUMMARY (long UTF-8 values must be folded).
+        appendLine(sb, "SUMMARY:${escapeText(event.summary)}")
+        appendLine(sb, "DTSTART:${UTC_FMT.format(Instant.ofEpochMilli(event.startEpochMs))}")
+        appendLine(sb, "DTEND:${UTC_FMT.format(Instant.ofEpochMilli(event.endEpochMs))}")
         if (!event.rrule.isNullOrBlank()) {
-            sb.append("RRULE:").append(event.rrule).append("\r\n")
+            // Fixes #28: currently produced RRULEs (FREQ=WEEKLY / FREQ=MONTHLY) have no special
+            // characters, but escape anyway to guard against future RRULE values containing `,`/`;`/`\`.
+            appendLine(sb, "RRULE:${encodeRRuleValue(event.rrule)}")
         }
-        sb.append("END:VEVENT\r\n")
-        sb.append("END:VCALENDAR\r\n")
+        appendLine(sb, "END:VEVENT")
+        appendLine(sb, "END:VCALENDAR")
         return sb.toString()
+    }
+
+    /** Fold [line] per RFC 5545 (§3.1, max 75 octets) and append with CRLF. */
+    private fun appendLine(sb: StringBuilder, line: String) {
+        sb.append(foldLine(line))
+        sb.append("\r\n")
     }
 
     /** Parse one VEVENT block. Returns null if mandatory fields are missing. */
@@ -129,6 +138,52 @@ object IcsCodec {
         .replace("\n", "\\n")
         .replace(",", "\\,")
         .replace(";", "\\;")
+
+    /**
+     * RFC 5545 recur-rule-part values are a list of `key=value;key=value` — colons,
+     * backslashes, newlines should never appear, but we still strip them defensively
+     * so hand-edited rules can't break a VEVENT. No escaping of `;` / `,` here — those
+     * are syntactic separators inside the RRULE grammar itself.
+     */
+    private fun encodeRRuleValue(s: String): String = s
+        .replace("\\", "")
+        .replace("\r", "")
+        .replace("\n", "")
+
+    /**
+     * RFC 5545 §3.1 "Content Lines": fold any line longer than 75 octets (UTF-8).
+     * Continuations start with a single space. The boundary must not split a UTF-8
+     * code point, so we back off to the previous byte that is not a continuation
+     * byte (top two bits `10xxxxxx`).
+     */
+    private fun foldLine(line: String): String {
+        val bytes = line.toByteArray(Charsets.UTF_8)
+        if (bytes.size <= MAX_LINE_OCTETS) return line
+        val out = StringBuilder(bytes.size + bytes.size / MAX_LINE_OCTETS + 2)
+        var i = 0
+        var first = true
+        while (i < bytes.size) {
+            // First segment gets the full 75-octet budget; continuation lines lose
+            // one octet to the leading SP, so we cap them at 74.
+            val budget = if (first) MAX_LINE_OCTETS else MAX_LINE_OCTETS - 1
+            var end = minOf(i + budget, bytes.size)
+            if (end < bytes.size) {
+                // Walk back off any UTF-8 continuation bytes so we cut on a code-point boundary.
+                while (end > i && (bytes[end].toInt() and 0xC0) == 0x80) end--
+                if (end == i) end = minOf(i + budget, bytes.size) // degenerate, give up
+            }
+            val chunk = String(bytes, i, end - i, Charsets.UTF_8)
+            if (!first) {
+                out.append("\r\n ")
+            }
+            out.append(chunk)
+            first = false
+            i = end
+        }
+        return out.toString()
+    }
+
+    private const val MAX_LINE_OCTETS = 75
 
     /**
      * Single-pass unescaper. `replace`-chained unescaping is not round-trip

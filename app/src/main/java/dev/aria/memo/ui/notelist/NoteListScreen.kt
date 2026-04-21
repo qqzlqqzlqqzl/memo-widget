@@ -26,7 +26,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -46,6 +50,15 @@ fun NoteListScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     // Fixes #11: surface sync failures so the user knows when pushes stop landing.
     val syncStatus by SyncStatusBus.status.collectAsStateWithLifecycle()
+    // Fixes #30: hold search query in rememberSaveable so it survives a Notes-tab
+    // ViewModel reset (which happens when the nav graph rebuilds the Notes entry).
+    // The composable becomes the source of truth; VM is pushed to on every change.
+    var query by rememberSaveable { mutableStateOf(state.query) }
+    // On first composition after a VM rebuild, seed the VM from our saved query so
+    // filtering reflects the restored value instead of an empty string.
+    LaunchedEffect(Unit) {
+        if (query != state.query) viewModel.onQueryChange(query)
+    }
 
     Scaffold(
         modifier = modifier,
@@ -73,7 +86,11 @@ fun NoteListScreen(
             SyncBanner(status = syncStatus, onDismiss = { SyncStatusBus.clearError() })
             NoteListBody(
                 state = state,
-                onQueryChange = viewModel::onQueryChange,
+                query = query,
+                onQueryChange = {
+                    query = it
+                    viewModel.onQueryChange(it)
+                },
                 innerPadding = PaddingValues(0.dp),
             )
         }
@@ -109,6 +126,7 @@ private fun SyncBanner(status: SyncStatus, onDismiss: () -> Unit) {
 @Composable
 private fun NoteListBody(
     state: NoteListUiState,
+    query: String,
     onQueryChange: (String) -> Unit,
     innerPadding: PaddingValues,
 ) {
@@ -119,7 +137,7 @@ private fun NoteListBody(
             .padding(horizontal = 16.dp),
     ) {
         OutlinedTextField(
-            value = state.query,
+            value = query,
             onValueChange = onQueryChange,
             label = { Text("搜索笔记") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
@@ -136,7 +154,7 @@ private fun NoteListBody(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = if (state.query.isBlank()) "还没有笔记，点右下角写一条" else "没找到匹配的笔记",
+                    text = if (query.isBlank()) "还没有笔记，点右下角写一条" else "没找到匹配的笔记",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
