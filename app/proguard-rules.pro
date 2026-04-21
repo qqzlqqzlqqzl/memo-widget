@@ -76,6 +76,13 @@
 # ===== Kizitonwose Calendar =====
 -keep class com.kizitonwose.calendar.** { *; }
 
+# ===== AndroidX Startup (P5) =====
+# InitializationProvider scans manifest <meta-data> via reflection; keep the
+# provider + Initializer subclasses so R8 doesn't strip them in release.
+-keep class androidx.startup.InitializationProvider { *; }
+-keep class * implements androidx.startup.Initializer { *; }
+-keepnames class androidx.startup.R$string
+
 # ===== Kotlin metadata (needed by serialization & reflection-light APIs) =====
 -keepattributes RuntimeVisibleAnnotations, AnnotationDefault
 -keep class kotlin.Metadata { *; }

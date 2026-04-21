@@ -20,6 +20,8 @@ data class DayGroup(
     val date: LocalDate,
     val entries: List<MemoEntry>,
     val dirty: Boolean,
+    val path: String,
+    val pinned: Boolean,
 )
 
 data class NoteListUiState(
@@ -36,6 +38,12 @@ data class NoteListUiState(
                 if (hits.isEmpty()) null else g.copy(entries = hits)
             }
         }
+
+    /** Pinned groups, preserving the list's incoming ordering. */
+    val pinned: List<DayGroup> get() = filtered.filter { it.pinned }
+
+    /** Non-pinned groups, preserving the list's incoming ordering. */
+    val unpinned: List<DayGroup> get() = filtered.filter { !it.pinned }
 }
 
 class NoteListViewModel(
@@ -51,6 +59,8 @@ class NoteListViewModel(
                 date = f.date,
                 entries = MemoRepository.parseEntries(f.content, f.date),
                 dirty = f.dirty,
+                path = f.path,
+                pinned = f.isPinned,
             )
         }
     }
@@ -73,6 +83,12 @@ class NoteListViewModel(
         viewModelScope.launch {
             delay(800)
             _refreshing.value = false
+        }
+    }
+
+    fun togglePin(path: String, pinned: Boolean) {
+        viewModelScope.launch {
+            repository.togglePin(path, pinned)
         }
     }
 

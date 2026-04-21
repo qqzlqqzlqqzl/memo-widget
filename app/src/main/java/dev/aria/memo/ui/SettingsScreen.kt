@@ -12,9 +12,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -24,11 +26,14 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,8 +51,15 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.aria.memo.data.PreferencesStore
+import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.oauth.GitHubOAuthClient
 import dev.aria.memo.notify.NotificationPermissionBus
+import dev.aria.memo.notify.QuickAddNotificationManager
+import dev.aria.memo.ui.oauth.OAuthSignInDialog
+import dev.aria.memo.ui.oauth.OAuthSignInViewModel
 import dev.aria.memo.ui.theme.MemoTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,6 +67,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onOpenEditor: () -> Unit,
+    onOpenHelp: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -67,6 +80,29 @@ fun SettingsScreen(
     // FLAG_SECURE is scoped to the moment the PAT is visible in plaintext.
     // Other tabs (notes list, calendar) remain screen-capture-friendly.
     val ctx = LocalContext.current
+
+    // Quick-add status-bar toggle — lives in PreferencesStore, independent of
+    // the GitHub-config-focused SettingsStore.
+    val preferencesStore = remember(ctx) { PreferencesStore(ctx.applicationContext) }
+    val quickAddEnabled by preferencesStore.quickAddEnabled
+        .collectAsStateWithLifecycle(initialValue = false)
+
+    // OAuth device-flow scaffolding. Kept local so the `ui/oauth/` package
+    // doesn't need any of the SettingsScreen state.
+    val oauthClient = remember { GitHubOAuthClient(ServiceLocator.httpClient()) }
+    val oauthViewModel = remember {
+        OAuthSignInViewModel(oauthClient, ServiceLocator.settingsStore)
+    }
+    // Severe fix: the VM is held in a plain `remember`, not a ViewModelStore, so
+    // leaving and re-entering the settings tab would otherwise leave a polling
+    // job alive on the old instance. Cancel it when the composable leaves.
+    androidx.compose.runtime.DisposableEffect(oauthViewModel) {
+        onDispose { oauthViewModel.reset() }
+    }
+    var showClientIdDialog by remember { mutableStateOf(false) }
+    var showOAuthDialog by remember { mutableStateOf(false) }
+    var pendingClientId by remember { mutableStateOf("") }
+    var clientIdDraft by remember { mutableStateOf("") }
     androidx.compose.runtime.DisposableEffect(patVisible) {
         val activity = ctx as? android.app.Activity
         val window = activity?.window
@@ -93,6 +129,21 @@ fun SettingsScreen(
         }
     }
 
+    // Clicking "用 GitHub 登录" either asks for a client id (first run) or
+    // jumps straight into the device-flow dialog (saved client id).
+    val onOAuthClick: () -> Unit = {
+        scope.launch {
+            val saved = preferencesStore.githubClientId.first()
+            if (saved.isBlank()) {
+                clientIdDraft = ""
+                showClientIdDialog = true
+            } else {
+                pendingClientId = saved
+                showOAuthDialog = true
+            }
+        }
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -110,9 +161,81 @@ fun SettingsScreen(
             onBranchChange = viewModel::onBranchChange,
             onSave = viewModel::save,
             onOpenEditor = onOpenEditor,
+            onOpenHelp = onOpenHelp,
+            onOAuthSignIn = onOAuthClick,
             innerPadding = innerPadding,
             notificationDenied = notificationDenied,
             onOpenNotificationSettings = { openAppNotificationSettings(ctx) },
+            quickAddEnabled = quickAddEnabled,
+            onQuickAddToggle = { requested ->
+                scope.launch {
+                    preferencesStore.setQuickAddEnabled(requested)
+                    if (requested) {
+                        QuickAddNotificationManager.show(ctx)
+                    } else {
+                        QuickAddNotificationManager.hide(ctx)
+                    }
+                }
+            },
+        )
+    }
+
+    if (showClientIdDialog) {
+        AlertDialog(
+            onDismissRequest = { showClientIdDialog = false },
+            title = { Text("填入 GitHub OAuth Client ID") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "先去 GitHub Settings → Developer settings → OAuth Apps 注册一个应用，" +
+                            "把它的 Client ID 填到这里（它是公开标识，不是 Secret，可以明文保存）。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedTextField(
+                        value = clientIdDraft,
+                        onValueChange = { clientIdDraft = it },
+                        label = { Text("Client ID") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = clientIdDraft.isNotBlank(),
+                    onClick = {
+                        val trimmed = clientIdDraft.trim()
+                        scope.launch {
+                            preferencesStore.setGithubClientId(trimmed)
+                            pendingClientId = trimmed
+                            showClientIdDialog = false
+                            showOAuthDialog = true
+                        }
+                    },
+                ) { Text("继续") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClientIdDialog = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (showOAuthDialog && pendingClientId.isNotBlank()) {
+        OAuthSignInDialog(
+            viewModel = oauthViewModel,
+            clientId = pendingClientId,
+            onDismiss = { showOAuthDialog = false },
+            onSuccess = {
+                showOAuthDialog = false
+                // Severe fix: `onPatChange` only updates UI state and marks it as
+                // user-edited; if the user navigates away without pressing "保存",
+                // the next save() would rewrite the persisted token with whatever
+                // stale value happened to be in state. Calling reload() pulls the
+                // freshly-persisted token (and owner/repo/branch) from
+                // SettingsStore, giving the UI an authoritative snapshot.
+                viewModel.reload()
+                scope.launch { snackbarHostState.showSnackbar("已登录 GitHub，令牌已保存 ✓") }
+            },
         )
     }
 }
@@ -138,8 +261,12 @@ private fun SettingsContent(
     onSave: () -> Unit,
     onOpenEditor: () -> Unit,
     innerPadding: PaddingValues,
+    onOpenHelp: () -> Unit = {},
+    onOAuthSignIn: () -> Unit = {},
     notificationDenied: Boolean = false,
     onOpenNotificationSettings: () -> Unit = {},
+    quickAddEnabled: Boolean = false,
+    onQuickAddToggle: (Boolean) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -152,6 +279,10 @@ private fun SettingsContent(
         if (notificationDenied) {
             NotificationPermissionCard(onOpenSettings = onOpenNotificationSettings)
         }
+        QuickAddToggleCard(
+            enabled = quickAddEnabled,
+            onToggle = onQuickAddToggle,
+        )
         StatusCard(state = state)
 
         OutlinedTextField(
@@ -173,6 +304,13 @@ private fun SettingsContent(
             supportingText = { Text("仅本机存储，不会上传到任何其它地方") },
             modifier = Modifier.fillMaxWidth(),
         )
+
+        OutlinedButton(
+            onClick = onOAuthSignIn,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("用 GitHub 登录（Device Flow）")
+        }
 
         OutlinedTextField(
             value = state.owner,
@@ -225,6 +363,39 @@ private fun SettingsContent(
             Spacer(Modifier.height(0.dp))
             Text("  立即写一条", modifier = Modifier.padding(start = 4.dp))
         }
+
+        HelpEntryCard(onOpenHelp = onOpenHelp)
+    }
+}
+
+@Composable
+private fun HelpEntryCard(onOpenHelp: () -> Unit) {
+    // User feedback called out missing in-app docs — this card opens the bundled
+    // user_guide.md in HelpScreen without leaving the app.
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        ),
+        onClick = onOpenHelp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                contentDescription = null,
+            )
+            Text(
+                text = "  📖 查看使用说明书",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
     }
 }
 
@@ -255,6 +426,40 @@ private fun StatusCard(state: SettingsUiState) {
                 text = "备注会追加到 ${state.owner.ifBlank { "<owner>" }}/${state.repo.ifBlank { "<repo>" }} 的 ${state.branch.ifBlank { "main" }} 分支",
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+    }
+}
+
+@Composable
+private fun QuickAddToggleCard(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.padding(end = 12.dp)) {
+                Text(
+                    text = "常驻通知栏快速入口",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = "在通知栏常驻一条低优先级通知，点一下直接打开写备忘。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onToggle)
         }
     }
 }

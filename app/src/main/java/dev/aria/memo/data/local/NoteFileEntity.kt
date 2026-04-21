@@ -31,4 +31,10 @@ data class NoteFileEntity(
     val remoteUpdatedAt: Long?,
     /** True when local content hasn't been pushed yet. */
     val dirty: Boolean,
+    /**
+     * User-pinned flag. Persisted as `pinned: true` front matter in the md file
+     * so it round-trips through GitHub. Pinned notes sort above non-pinned in
+     * the list screen.
+     */
+    val isPinned: Boolean = false,
 )

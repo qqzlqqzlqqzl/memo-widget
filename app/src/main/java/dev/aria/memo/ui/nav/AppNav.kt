@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Settings
@@ -28,11 +29,15 @@ import dev.aria.memo.ui.SettingsScreen
 import dev.aria.memo.ui.SettingsViewModel
 import dev.aria.memo.ui.calendar.CalendarScreen
 import dev.aria.memo.ui.calendar.CalendarViewModel
+import dev.aria.memo.ui.help.HelpScreen
 import dev.aria.memo.ui.notelist.NoteListScreen
 import dev.aria.memo.ui.notelist.NoteListViewModel
+import dev.aria.memo.ui.tags.TagListScreen
+import dev.aria.memo.ui.tags.TagListViewModel
 
 private enum class Tab(val route: String, val label: String) {
     Notes("notes", "笔记"),
+    Tags("tags", "标签"),
     Calendar("calendar", "日历"),
     Settings("settings", "设置"),
 }
@@ -62,6 +67,7 @@ fun AppNav(onOpenEditor: () -> Unit) {
                             Icon(
                                 imageVector = when (tab) {
                                     Tab.Notes -> Icons.AutoMirrored.Filled.Notes
+                                    Tab.Tags -> Icons.AutoMirrored.Filled.Label
                                     Tab.Calendar -> Icons.Filled.CalendarMonth
                                     Tab.Settings -> Icons.Filled.Settings
                                 },
@@ -87,6 +93,13 @@ fun AppNav(onOpenEditor: () -> Unit) {
                     modifier = Modifier.padding(padding),
                 )
             }
+            composable(Tab.Tags.route) {
+                val vm: TagListViewModel = viewModel(factory = TagListViewModel.Factory)
+                TagListScreen(
+                    viewModel = vm,
+                    modifier = Modifier.padding(padding),
+                )
+            }
             composable(Tab.Calendar.route) {
                 val vm: CalendarViewModel = viewModel(factory = CalendarViewModel.Factory)
                 CalendarScreen(
@@ -99,6 +112,17 @@ fun AppNav(onOpenEditor: () -> Unit) {
                 SettingsScreen(
                     viewModel = vm,
                     onOpenEditor = onOpenEditor,
+                    onOpenHelp = {
+                        // Sub-page off the settings tab, not a bottom-nav destination.
+                        // singleTop avoids stacking duplicate help screens on repeat taps.
+                        nav.navigate("help") { launchSingleTop = true }
+                    },
+                    modifier = Modifier.padding(padding),
+                )
+            }
+            composable("help") {
+                HelpScreen(
+                    onBack = { nav.popBackStack() },
                     modifier = Modifier.padding(padding),
                 )
             }

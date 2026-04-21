@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface NoteDao {
 
-    @Query("SELECT * FROM note_files ORDER BY date DESC")
+    @Query("SELECT * FROM note_files ORDER BY isPinned DESC, date DESC")
     fun observeAll(): Flow<List<NoteFileEntity>>
 
     @Query("SELECT * FROM note_files WHERE path = :path LIMIT 1")
@@ -26,4 +26,8 @@ interface NoteDao {
 
     @Query("UPDATE note_files SET dirty = 0, githubSha = :sha, remoteUpdatedAt = :remoteAt WHERE path = :path")
     suspend fun markClean(path: String, sha: String?, remoteAt: Long)
+
+    /** Toggle the pin flag on a single day-file. Also marks dirty for push. */
+    @Query("UPDATE note_files SET isPinned = :pinned, content = :content, dirty = 1, localUpdatedAt = :updatedAt WHERE path = :path")
+    suspend fun togglePin(path: String, pinned: Boolean, content: String, updatedAt: Long)
 }

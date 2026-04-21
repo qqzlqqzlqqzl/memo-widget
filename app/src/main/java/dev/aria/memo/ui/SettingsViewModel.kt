@@ -64,6 +64,25 @@ class SettingsViewModel(
     fun onRepoChange(v: String) = _state.update { it.copy(repo = v, errorMessage = null) }
     fun onBranchChange(v: String) = _state.update { it.copy(branch = v, errorMessage = null) }
 
+    /**
+     * Re-pull config from DataStore + secure PAT store and overwrite every
+     * field. Used after OAuth completes so the UI reflects the freshly-written
+     * token without relying on a manual `onPatChange` fire-and-forget.
+     */
+    fun reload() {
+        viewModelScope.launch {
+            val current = settings.config.first()
+            _state.value = _state.value.copy(
+                pat = current.pat,
+                owner = current.owner,
+                repo = current.repo,
+                branch = current.branch.ifBlank { "main" },
+                loaded = true,
+                errorMessage = null,
+            )
+        }
+    }
+
     fun save() {
         val snapshot = _state.value
         if (snapshot.isSaving) return

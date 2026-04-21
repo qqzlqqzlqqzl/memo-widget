@@ -1,9 +1,13 @@
 # Memo Widget
 
-一个后端是 **GitHub** 的 Android 笔记 + 日程 app。写的每一条笔记、每一个日程都会自动 commit 到你自己的 GitHub 仓库，多设备之间自动同步，离线也能用。**v0.6.0-p4.1 起**，日程支持循环规则（每周 / 每月）和本地提醒。
+> 📌 **本仓库文档全部中文**。如果你看到英文内容，说明打开的不是本 README — 请先确认文件名。
+>
+> - 🟢 **普通用户** → 看 [USER_GUIDE.md《使用说明书》](USER_GUIDE.md)（不需要懂代码）
+> - 🛠️ **开发者 / 接手代码** → 看 [HANDOFF.md](HANDOFF.md)（当前架构 + 待办）
+> - 📜 **P0 历史设计** → [AGENT_SPEC.md](AGENT_SPEC.md)（已过期，仅存档用途）
+> - 📄 **本文**（README.md） → 技术总览，继续往下读
 
-> 🟢 **普通用户先看 [使用说明书 USER_GUIDE.md](USER_GUIDE.md)** — 下面是技术细节。
-> 🛠️ **准备接手代码？看 [HANDOFF.md](HANDOFF.md)** — 给下一个开发者/会话的 onboarding。
+一个后端是 **GitHub** 的 Android 笔记 + 日程 app。写的每一条笔记、每一个日程都会自动 commit 到你自己的 GitHub 仓库，多设备之间自动同步，离线也能用。**v0.6.0-p4.1 起**，日程支持循环规则（每周 / 每月）和本地提醒。
 
 [![release](https://img.shields.io/badge/release-v0.6.0--p4.1-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.6.0-p4.1)
 [![build](https://img.shields.io/badge/build-passing-brightgreen)]()

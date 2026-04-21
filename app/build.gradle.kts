@@ -14,8 +14,8 @@ android {
         applicationId = "dev.aria.memo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.7.0-p4.2"
+        versionCode = 8
+        versionName = "0.8.0-p5"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -122,6 +122,11 @@ dependencies {
     // WorkManager (background sync)
     implementation(libs.androidx.workmanager)
 
+    // AndroidX Startup — explicit so R$string survives `nonTransitiveRClass=true`
+    // (WorkManager pulls it transitively; without a direct impl the inner R class
+    // is stripped and AppInitializer crashes on first install). See P5 BDD crash.
+    implementation(libs.androidx.startup)
+
     // Ktor
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)
@@ -137,4 +142,5 @@ dependencies {
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.ktor.client.mock)
 }

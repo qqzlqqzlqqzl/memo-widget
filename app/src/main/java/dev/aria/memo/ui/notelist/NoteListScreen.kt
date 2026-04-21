@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -91,6 +93,7 @@ fun NoteListScreen(
                     query = it
                     viewModel.onQueryChange(it)
                 },
+                onTogglePin = { path, pinned -> viewModel.togglePin(path, pinned) },
                 innerPadding = PaddingValues(0.dp),
             )
         }
@@ -128,6 +131,7 @@ private fun NoteListBody(
     state: NoteListUiState,
     query: String,
     onQueryChange: (String) -> Unit,
+    onTogglePin: (String, Boolean) -> Unit,
     innerPadding: PaddingValues,
 ) {
     Column(
@@ -147,8 +151,9 @@ private fun NoteListBody(
                 .padding(vertical = 8.dp),
         )
 
-        val groups = state.filtered
-        if (groups.isEmpty()) {
+        val pinned = state.pinned
+        val unpinned = state.unpinned
+        if (pinned.isEmpty() && unpinned.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -163,10 +168,28 @@ private fun NoteListBody(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                groups.forEach { group ->
-                    item(key = "h-${group.date}") { DayHeader(group) }
-                    items(group.entries.size, key = { "${group.date}-$it" }) { idx ->
-                        EntryCard(group.entries[idx])
+                if (pinned.isNotEmpty()) {
+                    item(key = "section-pinned") { SectionLabel(text = "📌 置顶") }
+                    pinned.forEach { group ->
+                        item(key = "h-${group.path}") {
+                            DayHeader(group, onTogglePin = onTogglePin)
+                        }
+                        items(group.entries.size, key = { "${group.path}-$it" }) { idx ->
+                            EntryCard(group.entries[idx])
+                        }
+                    }
+                }
+                if (unpinned.isNotEmpty()) {
+                    if (pinned.isNotEmpty()) {
+                        item(key = "section-all") { SectionLabel(text = "全部笔记") }
+                    }
+                    unpinned.forEach { group ->
+                        item(key = "h-${group.path}") {
+                            DayHeader(group, onTogglePin = onTogglePin)
+                        }
+                        items(group.entries.size, key = { "${group.path}-$it" }) { idx ->
+                            EntryCard(group.entries[idx])
+                        }
                     }
                 }
             }
@@ -174,17 +197,46 @@ private fun NoteListBody(
     }
 }
 
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
+}
+
 private val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy 年 MM 月 dd 日 EEEE")
 private val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 @Composable
-private fun DayHeader(group: DayGroup) {
-    Text(
-        text = group.date.format(DATE_FMT) + if (group.dirty) "  · 待同步" else "",
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
+private fun DayHeader(
+    group: DayGroup,
+    onTogglePin: (String, Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = group.date.format(DATE_FMT) + if (group.dirty) "  · 待同步" else "",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(
+            onClick = { onTogglePin(group.path, !group.pinned) },
+        ) {
+            Icon(
+                imageVector = if (group.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                contentDescription = if (group.pinned) "取消置顶" else "置顶",
+                tint = if (group.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 @Composable
