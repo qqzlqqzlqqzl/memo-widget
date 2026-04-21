@@ -14,8 +14,6 @@
         <item name="android:windowBackground">?attr/colorSurface</item>
     </style>
 
-    <!-- Transparent launcher splash (Android 12+) -->
-    <style name="Theme.MemoWidget.Starting" parent="Theme.MemoWidget">
-        <item name="android:windowSplashScreenBackground">?attr/colorSurface</item>
-    </style>
+    <!-- Base splash style (no Android 12+ attrs here; see values-v31/themes.xml). -->
+    <style name="Theme.MemoWidget.Starting" parent="Theme.MemoWidget" />
 </resources>

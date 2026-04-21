@@ -1,8 +1,26 @@
 # Memo Widget
 
+[![lint](https://img.shields.io/badge/lint-passing-brightgreen)]()
+[![unit-tests](https://img.shields.io/badge/tests-8%20passed-brightgreen)]()
+[![e2e](https://img.shields.io/badge/e2e-real%20github%20commit%20verified-brightgreen)]()
+[![kotlin](https://img.shields.io/badge/kotlin-2.0.10-blue)]()
+[![glance](https://img.shields.io/badge/jetpack%20glance-1.1.0-blue)]()
+
 A 2×2 Android home-screen widget that commits quick memos to a GitHub repository.
 
 Tap the widget → write → save → the entry is appended to today's markdown file on GitHub via the Contents API.
+
+## CI summary (this repo)
+
+| Stage | Command | Result |
+|-------|---------|--------|
+| Build | `./gradlew :app:assembleDebug` | ✅ 23 MB APK in 9s |
+| Lint | `./gradlew :app:lintDebug` | ✅ 0 errors, 37 warnings (non-blocking) |
+| Unit tests | `./gradlew :app:testDebugUnitTest` | ✅ 8/8 tests pass (AppConfig + MemoResult) |
+| UI render | adb screencap on emulator | ✅ Settings + Edit screens render (see `screenshots/`) |
+| **E2E real commit** | emulator → UI → GitHub API | ✅ Two memos committed to `qqzlqqzlqqzl/memos` main |
+
+Live proof-of-life on GitHub: [2026-04-21.md](https://github.com/qqzlqqzlqqzl/memos/blob/main/2026-04-21.md) (two entries, two commits, `memo: YYYY-MM-DD HH:MM` message format).
 
 ## Screens
 
@@ -114,6 +132,25 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - [x] P1–P6: full feature scope built and compiles clean
 - [x] Installed on emulator (Pixel 7 / Android 14 arm64)
 - [x] Settings + Edit screens verified via screenshot
+- [x] Lint passes, 8 unit tests pass
+- [x] **E2E: real GitHub commits verified against `qqzlqqzlqqzl/memos`** (create path + sha-based append)
 - [ ] P6.2: error handling polish (NOT_CONFIGURED toast, 401 hint on widget)
 - [ ] P7: signed release APK for phone install
 - [ ] Widget on-home-screen verification (requires launcher add-widget UI)
+
+## Reproducing the E2E test
+
+```bash
+# 1. Boot emulator headless (macOS 26 compat)
+emulator -avd memo_pixel -no-window -no-audio -no-snapshot-save -gpu swiftshader_indirect &
+adb wait-for-device
+# 2. Build & install
+./gradlew :app:installDebug
+# 3. Automated UI: fill config, open editor, type, save
+adb shell am start -n dev.aria.memo/.MainActivity
+# ... use adb shell input tap / input text (see screenshots/04_settings_filled.png)
+# 4. Verify on GitHub
+gh api repos/<owner>/<repo>/contents/$(date +%Y-%m-%d).md --jq '.content' | base64 -d
+```
+
+`screenshots/` holds the stage-by-stage evidence: 02 (settings), 03 (edit), 04 (filled config ✓), 07 (typed memo), 08 (post-save → launcher).

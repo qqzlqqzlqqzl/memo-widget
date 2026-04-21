@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ splash screen customization via the new SplashScreen API. -->
+    <style name="Theme.MemoWidget.Starting" parent="Theme.MemoWidget">
+        <item name="android:windowSplashScreenBackground">?attr/colorSurface</item>
+    </style>
+</resources>
