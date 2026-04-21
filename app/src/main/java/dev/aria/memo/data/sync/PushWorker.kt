@@ -4,17 +4,22 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dev.aria.memo.data.ErrorCode
+import dev.aria.memo.data.GhDeleteRequest
 import dev.aria.memo.data.GhPutRequest
 import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.ics.IcsCodec
 import java.util.Base64
 
 /**
- * Background push of dirty note files to GitHub.
+ * Background push of dirty note files and events to GitHub.
  *
- * WorkManager may run this Worker before Application.onCreate has fired
- * (e.g., after device reboot with queued work), so the first line calls the
- * idempotent [ServiceLocator.init] to guarantee the repository is built.
+ * Notes: iterate [dao.pending], PUT each with the latest SHA, mark clean.
+ * Events: iterate event DAO pending; if tombstoned → DELETE file (then hard
+ * delete the row); else → PUT the re-encoded `.ics`.
+ *
+ * WorkManager may instantiate this Worker before Application.onCreate on a
+ * cold boot; the idempotent [ServiceLocator.init] guards against that NPE.
  */
 class PushWorker(
     appContext: Context,
@@ -25,15 +30,15 @@ class PushWorker(
         ServiceLocator.init(applicationContext)
         val settings = ServiceLocator.settingsStore
         val api = ServiceLocator.api()
-        val dao = ServiceLocator.noteDao()
+        val noteDao = ServiceLocator.noteDao()
+        val eventDao = ServiceLocator.eventDao()
         val config = settings.current()
         if (!config.isConfigured) return Result.failure()
 
-        val pending = dao.pending()
-        if (pending.isEmpty()) return Result.success()
-
         var retry = false
-        for (row in pending) {
+
+        // --- notes ---------------------------------------------------------
+        for (row in noteDao.pending()) {
             val encoded = Base64.getEncoder().encodeToString(row.content.toByteArray(Charsets.UTF_8))
             val request = GhPutRequest(
                 message = "memo: ${row.path}",
@@ -42,20 +47,58 @@ class PushWorker(
                 sha = row.githubSha,
             )
             when (val res = api.putFile(config, row.path, request)) {
-                is MemoResult.Ok -> {
-                    val nowMs = System.currentTimeMillis()
-                    dao.markClean(row.path, res.value.content.sha, nowMs)
-                }
+                is MemoResult.Ok -> noteDao.markClean(row.path, res.value.content.sha, System.currentTimeMillis())
                 is MemoResult.Err -> when (res.code) {
                     ErrorCode.NETWORK, ErrorCode.CONFLICT -> retry = true
-                    ErrorCode.UNAUTHORIZED -> {
-                        // Bad PAT: stop retrying this batch, user must fix config.
-                        return Result.failure()
-                    }
-                    else -> { /* skip this file — next save will re-queue */ }
+                    ErrorCode.UNAUTHORIZED -> return Result.failure()
+                    else -> { /* skip */ }
                 }
             }
         }
+
+        // --- events --------------------------------------------------------
+        for (row in eventDao.pending()) {
+            if (row.tombstoned) {
+                val sha = row.githubSha
+                if (sha == null) {
+                    // never uploaded — just drop the row
+                    eventDao.hardDelete(row.uid)
+                    continue
+                }
+                val req = GhDeleteRequest(
+                    message = "event delete: ${row.uid}",
+                    sha = sha,
+                    branch = config.branch,
+                )
+                when (val res = api.deleteFile(config, row.filePath, req)) {
+                    is MemoResult.Ok -> eventDao.hardDelete(row.uid)
+                    is MemoResult.Err -> when (res.code) {
+                        ErrorCode.NOT_FOUND -> eventDao.hardDelete(row.uid) // already gone, fine
+                        ErrorCode.NETWORK, ErrorCode.CONFLICT -> retry = true
+                        ErrorCode.UNAUTHORIZED -> return Result.failure()
+                        else -> { /* skip */ }
+                    }
+                }
+            } else {
+                val ics = IcsCodec.encode(row)
+                val encoded = Base64.getEncoder().encodeToString(ics.toByteArray(Charsets.UTF_8))
+                val req = GhPutRequest(
+                    message = "event: ${row.summary.take(40)}",
+                    content = encoded,
+                    branch = config.branch,
+                    sha = row.githubSha,
+                )
+                when (val res = api.putFile(config, row.filePath, req)) {
+                    is MemoResult.Ok -> eventDao.markClean(row.uid, res.value.content.sha, System.currentTimeMillis())
+                    is MemoResult.Err -> when (res.code) {
+                        ErrorCode.NETWORK, ErrorCode.CONFLICT -> retry = true
+                        ErrorCode.UNAUTHORIZED -> return Result.failure()
+                        else -> { /* skip */ }
+                    }
+                }
+            }
+        }
+
         return if (retry) Result.retry() else Result.success()
     }
 }

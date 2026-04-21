@@ -26,6 +26,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.aria.memo.ui.SettingsScreen
 import dev.aria.memo.ui.SettingsViewModel
+import dev.aria.memo.ui.calendar.CalendarScreen
+import dev.aria.memo.ui.calendar.CalendarViewModel
 import dev.aria.memo.ui.notelist.NoteListScreen
 import dev.aria.memo.ui.notelist.NoteListViewModel
 
@@ -86,7 +88,11 @@ fun AppNav(onOpenEditor: () -> Unit) {
                 )
             }
             composable(Tab.Calendar.route) {
-                CalendarPlaceholder(modifier = Modifier.padding(padding))
+                val vm: CalendarViewModel = viewModel(factory = CalendarViewModel.Factory)
+                CalendarScreen(
+                    viewModel = vm,
+                    modifier = Modifier.padding(padding),
+                )
             }
             composable(Tab.Settings.route) {
                 val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
@@ -100,13 +106,3 @@ fun AppNav(onOpenEditor: () -> Unit) {
     }
 }
 
-@Composable
-private fun CalendarPlaceholder(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
-            text = "日历视图 · 下阶段开放",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}

@@ -38,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -58,6 +59,20 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var patVisible by remember { mutableStateOf(false) }
+
+    // FLAG_SECURE is scoped to the moment the PAT is visible in plaintext.
+    // Other tabs (notes list, calendar) remain screen-capture-friendly.
+    val ctx = LocalContext.current
+    androidx.compose.runtime.DisposableEffect(patVisible) {
+        val activity = ctx as? android.app.Activity
+        val window = activity?.window
+        if (patVisible) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+    }
 
     // Surface saved / error events as Snackbars then consume them.
     LaunchedEffect(state.lastSavedAt) {

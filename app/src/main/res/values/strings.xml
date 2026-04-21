@@ -9,6 +9,8 @@
     <string name="widget_add_memo">+ New memo</string>
     <string name="widget_empty">No memos today yet</string>
     <string name="widget_not_configured">Open app to set up</string>
+    <string name="today_widget_label">今日</string>
+    <string name="today_widget_description">今天的日程和备忘一览</string>
 
     <!-- Edit screen -->
     <string name="edit_title">New memo</string>

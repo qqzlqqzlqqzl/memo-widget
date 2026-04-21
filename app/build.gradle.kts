@@ -14,8 +14,8 @@ android {
         applicationId = "dev.aria.memo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0-p1"
+        versionCode = 3
+        versionName = "0.3.0-p2"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -106,6 +106,9 @@ dependencies {
 
     // Navigation (single-activity Compose nav)
     implementation(libs.androidx.navigation.compose)
+
+    // Calendar month view
+    implementation(libs.calendar.compose)
 
     // Glance (AppWidget)
     implementation(libs.androidx.glance.appwidget)

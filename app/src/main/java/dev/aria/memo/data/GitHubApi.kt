@@ -3,6 +3,7 @@ package dev.aria.memo.data
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.accept
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.put
@@ -18,16 +19,14 @@ import java.net.URLEncoder
 /**
  * Thin GitHub Contents API client.
  *
- * Contract (AGENT_SPEC.md section 4.2):
+ * Contract:
  *  - Never throws; all failures become [MemoResult.Err].
- *  - HTTP 404 → [ErrorCode.NOT_FOUND] (benign — caller may treat as "empty").
+ *  - HTTP 404 → [ErrorCode.NOT_FOUND] (benign — caller may treat as empty).
  *  - HTTP 401/403 → [ErrorCode.UNAUTHORIZED].
- *  - HTTP 409 or 422 (sha conflict) → [ErrorCode.CONFLICT].
+ *  - HTTP 409/422 (sha conflict) → [ErrorCode.CONFLICT].
  *  - Any IO/network failure → [ErrorCode.NETWORK].
- *  - Anything else → [ErrorCode.UNKNOWN].
  *
- * PAT handling: the token is only used as a bearer header; it is NEVER
- * included in returned error messages or logs.
+ * PAT is only ever used as a bearer header — never included in error messages.
  */
 class GitHubApi(private val httpClient: HttpClient) {
 
@@ -36,16 +35,20 @@ class GitHubApi(private val httpClient: HttpClient) {
         return runCatchingHttp {
             val response: HttpResponse = httpClient.get(url) {
                 githubHeaders(config)
-                // GET ?ref=branch — ensures we read the right branch.
                 url { parameters.append("ref", config.branch) }
             }
-            when (response.status.value) {
-                in 200..299 -> MemoResult.Ok(response.body<GhContents>())
-                404 -> MemoResult.Err(ErrorCode.NOT_FOUND, "file not found")
-                401, 403 -> MemoResult.Err(ErrorCode.UNAUTHORIZED, "github auth failed (${response.status.value})")
-                409, 422 -> MemoResult.Err(ErrorCode.CONFLICT, "sha conflict")
-                else -> MemoResult.Err(ErrorCode.UNKNOWN, "github GET ${response.status.value}: ${safeBody(response)}")
+            mapGetOrPut(response) { response.body<GhContents>() }
+        }
+    }
+
+    suspend fun listDir(config: AppConfig, path: String): MemoResult<List<GhContentListItem>> {
+        val url = buildUrl(config, path)
+        return runCatchingHttp {
+            val response: HttpResponse = httpClient.get(url) {
+                githubHeaders(config)
+                url { parameters.append("ref", config.branch) }
             }
+            mapGetOrPut(response) { response.body<List<GhContentListItem>>() }
         }
     }
 
@@ -61,17 +64,44 @@ class GitHubApi(private val httpClient: HttpClient) {
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
+            mapGetOrPut(response) { response.body<GhPutResponse>() }
+        }
+    }
+
+    suspend fun deleteFile(
+        config: AppConfig,
+        path: String,
+        request: GhDeleteRequest,
+    ): MemoResult<Unit> {
+        val url = buildUrl(config, path)
+        return runCatchingHttp {
+            val response: HttpResponse = httpClient.delete(url) {
+                githubHeaders(config)
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
             when (response.status.value) {
-                in 200..299 -> MemoResult.Ok(response.body<GhPutResponse>())
-                404 -> MemoResult.Err(ErrorCode.NOT_FOUND, "repo or branch not found")
-                401, 403 -> MemoResult.Err(ErrorCode.UNAUTHORIZED, "github auth failed (${response.status.value})")
-                409, 422 -> MemoResult.Err(ErrorCode.CONFLICT, "sha conflict on PUT")
-                else -> MemoResult.Err(ErrorCode.UNKNOWN, "github PUT ${response.status.value}: ${safeBody(response)}")
+                in 200..299 -> MemoResult.Ok(Unit)
+                404 -> MemoResult.Err(ErrorCode.NOT_FOUND, "file not found")
+                401, 403 -> MemoResult.Err(ErrorCode.UNAUTHORIZED, "github auth failed")
+                409, 422 -> MemoResult.Err(ErrorCode.CONFLICT, "sha conflict on DELETE")
+                else -> MemoResult.Err(ErrorCode.UNKNOWN, "github DELETE ${response.status.value}: ${safeBody(response)}")
             }
         }
     }
 
     // --- helpers -----------------------------------------------------------
+
+    private suspend inline fun <reified T> mapGetOrPut(
+        response: HttpResponse,
+        body: () -> T,
+    ): MemoResult<T> = when (response.status.value) {
+        in 200..299 -> MemoResult.Ok(body())
+        404 -> MemoResult.Err(ErrorCode.NOT_FOUND, "not found")
+        401, 403 -> MemoResult.Err(ErrorCode.UNAUTHORIZED, "github auth failed (${response.status.value})")
+        409, 422 -> MemoResult.Err(ErrorCode.CONFLICT, "sha conflict")
+        else -> MemoResult.Err(ErrorCode.UNKNOWN, "github ${response.status.value}: ${safeBody(response)}")
+    }
 
     private fun io.ktor.client.request.HttpRequestBuilder.githubHeaders(config: AppConfig) {
         header("Authorization", "Bearer ${config.pat}")
@@ -83,9 +113,6 @@ class GitHubApi(private val httpClient: HttpClient) {
         val encodedPath = path.split('/')
             .filter { it.isNotEmpty() }
             .joinToString("/") { segment ->
-                // URLEncoder uses + for space; GitHub paths want %20, and we
-                // also don't want / to be encoded inside a segment. Since we
-                // split on / first, the segment has none — just swap + for %20.
                 URLEncoder.encode(segment, Charsets.UTF_8.name()).replace("+", "%20")
             }
         return "https://api.github.com/repos/${config.owner}/${config.repo}/contents/$encodedPath"
@@ -102,8 +129,6 @@ class GitHubApi(private val httpClient: HttpClient) {
     } catch (e: IOException) {
         MemoResult.Err(ErrorCode.NETWORK, e.message ?: "network error")
     } catch (e: Throwable) {
-        // Ktor wraps some IO failures in its own exceptions; treat as network
-        // if the cause chain contains one, else UNKNOWN. We never rethrow.
         val cause = generateSequence<Throwable>(e) { it.cause }.firstOrNull { it is IOException }
         if (cause != null) {
             MemoResult.Err(ErrorCode.NETWORK, cause.message ?: "network error")
@@ -114,7 +139,6 @@ class GitHubApi(private val httpClient: HttpClient) {
 
     @Suppress("unused")
     private companion object {
-        // HttpStatusCode referenced to keep the import stable across ktor versions.
         private val OK = HttpStatusCode.OK
     }
 }
