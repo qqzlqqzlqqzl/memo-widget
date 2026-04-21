@@ -27,7 +27,8 @@ object IcsCodec {
         sb.append("VERSION:2.0\r\n")
         sb.append("PRODID:$PRODID\r\n")
         sb.append("BEGIN:VEVENT\r\n")
-        sb.append("UID:").append(event.uid).append("\r\n")
+        // Fixes #1: escape UID so `;` / `:` / `\` / `\n` in the UID survive a round trip.
+        sb.append("UID:").append(escapeText(event.uid)).append("\r\n")
         sb.append("DTSTAMP:").append(UTC_FMT.format(Instant.ofEpochMilli(event.localUpdatedAt))).append("\r\n")
         sb.append("SUMMARY:").append(escapeText(event.summary)).append("\r\n")
         sb.append("DTSTART:").append(UTC_FMT.format(Instant.ofEpochMilli(event.startEpochMs))).append("\r\n")
@@ -58,7 +59,8 @@ object IcsCodec {
                 }
             }
         }
-        val uid = fields["UID"] ?: return null
+        // Fixes #1: UIDs written by us are escaped on encode, so reverse that here.
+        val uid = fields["UID"]?.let(::unescapeText) ?: return null
         val summary = unescapeText(fields["SUMMARY"].orEmpty())
         val start = parseIcsInstant(fields["DTSTART"]) ?: return null
         val end = parseIcsInstant(fields["DTEND"]) ?: start

@@ -1,18 +1,21 @@
 package dev.aria.memo.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
  * One row per calendar event, mirroring a single iCalendar file on GitHub at
  * `events/<uid>.ics`.
  *
- * `uid` is the stable iCalendar UID (P2 generates a v4 UUID on creation; never
- * changes). `startEpochMs` / `endEpochMs` are UTC milliseconds — UI renders
- * in the device local zone. `dirty` + `githubSha` mirror [NoteFileEntity]'s
- * sync semantics.
+ * Fixes #2: `filePath` has a unique index so [PullWorker] can locate rows by
+ * remote filename even after a rename where filename != uid.
+ *
+ * `uid` is the stable iCalendar UID. `startEpochMs` / `endEpochMs` are UTC
+ * milliseconds — UI renders in the device local zone. `dirty` + `githubSha`
+ * mirror [NoteFileEntity]'s sync semantics.
  */
-@Entity(tableName = "events")
+@Entity(tableName = "events", indices = [Index(value = ["filePath"], unique = true)])
 data class EventEntity(
     @PrimaryKey val uid: String,
     val summary: String,

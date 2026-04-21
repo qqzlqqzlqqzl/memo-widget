@@ -20,6 +20,10 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE uid = :uid LIMIT 1")
     suspend fun get(uid: String): EventEntity?
 
+    /** Fixes #2: locate an event by its remote path (filename may not equal uid). */
+    @Query("SELECT * FROM events WHERE filePath = :path LIMIT 1")
+    suspend fun getByPath(path: String): EventEntity?
+
     @Query("SELECT * FROM events WHERE dirty = 1")
     suspend fun pending(): List<EventEntity>
 

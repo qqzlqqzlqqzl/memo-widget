@@ -37,7 +37,17 @@ class PullWorker(
         var anyNetwork = false
 
         // --- notes ---------------------------------------------------------
+        // Fixes #5: when the local cache is empty, list the repo root and pull
+        // every `YYYY-MM-DD.md` up front so freshly-installed devices / cleared
+        // caches see the full history instead of only the 14-day window.
         val today = LocalDate.now()
+        val cachedNoteCount = noteDao.count()
+        if (cachedNoteCount == 0) {
+            anyNetwork = anyNetwork or bootstrapAllNotes(api, noteDao, config)
+        }
+
+        // Always also refresh the 14-day sliding window so recent edits from
+        // other devices are picked up even when the cache isn't empty.
         for (offset in 0 until WINDOW_DAYS) {
             val date = today.minusDays(offset.toLong())
             val path = config.filePathFor(date)
@@ -74,9 +84,11 @@ class PullWorker(
             is MemoResult.Ok -> {
                 val remote = res.value.filter { it.type == "file" && it.name.endsWith(".ics") }
                 val remotePaths = remote.map { it.path }.toSet()
-                // Pull new / changed
+                // Pull new / changed. Fixes #2: locate by filePath (unique index),
+                // NOT by deriving uid from filename — a remote rename used to produce
+                // a duplicate row.
                 for (item in remote) {
-                    val localByPath = findEventByPath(eventDao, item.path)
+                    val localByPath = eventDao.getByPath(item.path)
                     if (localByPath?.dirty == true) continue
                     if (localByPath != null && localByPath.githubSha == item.sha) continue
                     when (val fileRes = api.getFile(config, item.path)) {
@@ -84,6 +96,12 @@ class PullWorker(
                             val text = runCatching { fileRes.value.decodedContent }.getOrNull() ?: continue
                             val nowMs = System.currentTimeMillis()
                             val decoded = IcsCodec.decode(text, item.path, item.sha, nowMs) ?: continue
+                            // Remote UID may differ from what we had indexed — if so,
+                            // drop the stale row so the new row (keyed on remote UID)
+                            // becomes the canonical one.
+                            if (localByPath != null && localByPath.uid != decoded.uid) {
+                                eventDao.hardDelete(localByPath.uid)
+                            }
                             eventDao.upsert(decoded)
                         }
                         is MemoResult.Err -> when (fileRes.code) {
@@ -109,16 +127,53 @@ class PullWorker(
         return if (anyNetwork) Result.retry() else Result.success()
     }
 
-    private suspend fun findEventByPath(
-        dao: dev.aria.memo.data.local.EventDao,
-        path: String,
-    ): dev.aria.memo.data.local.EventEntity? {
-        // uid is filename without `.ics` → derive uid from path for a cheap lookup.
-        val uid = path.substringAfterLast('/').removeSuffix(".ics")
-        return dao.get(uid)
+    /**
+     * Walk the root directory once, fetching every file whose name matches
+     * `YYYY-MM-DD.md`. Returns `true` if a network error deserves a retry.
+     */
+    private suspend fun bootstrapAllNotes(
+        api: dev.aria.memo.data.GitHubApi,
+        dao: dev.aria.memo.data.local.NoteDao,
+        config: dev.aria.memo.data.AppConfig,
+    ): Boolean {
+        var anyNetwork = false
+        val root = when (val res = api.listDir(config, "")) {
+            is MemoResult.Ok -> res.value
+            is MemoResult.Err -> {
+                if (res.code == ErrorCode.NETWORK) anyNetwork = true
+                return anyNetwork
+            }
+        }
+        val noteFiles = root.filter { it.type == "file" && NOTE_FILENAME.matches(it.name) }
+        for (item in noteFiles) {
+            val date = runCatching { LocalDate.parse(item.name.removeSuffix(".md")) }.getOrNull() ?: continue
+            when (val res = api.getFile(config, item.path)) {
+                is MemoResult.Ok -> {
+                    val text = runCatching { res.value.decodedContent }.getOrNull() ?: continue
+                    val nowMs = System.currentTimeMillis()
+                    dao.upsert(
+                        dev.aria.memo.data.local.NoteFileEntity(
+                            path = item.path,
+                            date = date,
+                            content = text,
+                            githubSha = res.value.sha,
+                            localUpdatedAt = nowMs,
+                            remoteUpdatedAt = nowMs,
+                            dirty = false,
+                        )
+                    )
+                }
+                is MemoResult.Err -> when (res.code) {
+                    ErrorCode.NETWORK -> anyNetwork = true
+                    else -> Unit
+                }
+            }
+        }
+        return anyNetwork
     }
 
     private companion object {
         const val WINDOW_DAYS = 14
+        val NOTE_FILENAME = Regex("""\d{4}-\d{2}-\d{2}\.md""")
     }
 }

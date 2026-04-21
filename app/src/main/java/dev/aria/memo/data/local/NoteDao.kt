@@ -17,6 +17,10 @@ interface NoteDao {
     @Query("SELECT * FROM note_files WHERE dirty = 1")
     suspend fun pending(): List<NoteFileEntity>
 
+    /** Fixes #5: cheap emptiness check to decide whether we need an initial full pull. */
+    @Query("SELECT COUNT(*) FROM note_files")
+    suspend fun count(): Int
+
     @Upsert
     suspend fun upsert(entity: NoteFileEntity)
 

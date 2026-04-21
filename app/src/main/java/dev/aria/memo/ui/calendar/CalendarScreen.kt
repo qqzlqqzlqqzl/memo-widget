@@ -85,6 +85,9 @@ fun CalendarScreen(
         firstDayOfWeek = DayOfWeek.MONDAY,
     )
     val scope = rememberCoroutineScope()
+    // Fixes #8: cancel a pending scroll before launching a new one so quick
+    // chevron taps don't stack month-scroll animations on top of each other.
+    var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     Scaffold(
         modifier = modifier,
@@ -93,7 +96,8 @@ fun CalendarScreen(
                 title = { Text("日历") },
                 actions = {
                     IconButton(onClick = {
-                        scope.launch {
+                        scrollJob?.cancel()
+                        scrollJob = scope.launch {
                             calendarState.animateScrollToMonth(calendarState.firstVisibleMonth.yearMonth.minusMonths(1))
                         }
                     }) { Icon(Icons.Filled.ChevronLeft, contentDescription = "上一月") }
@@ -102,7 +106,8 @@ fun CalendarScreen(
                         style = MaterialTheme.typography.titleMedium,
                     )
                     IconButton(onClick = {
-                        scope.launch {
+                        scrollJob?.cancel()
+                        scrollJob = scope.launch {
                             calendarState.animateScrollToMonth(calendarState.firstVisibleMonth.yearMonth.plusMonths(1))
                         }
                     }) { Icon(Icons.Filled.ChevronRight, contentDescription = "下一月") }

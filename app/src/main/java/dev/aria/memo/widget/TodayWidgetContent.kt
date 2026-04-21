@@ -143,7 +143,9 @@ private fun TodayList(events: List<EventEntity>, memos: List<MemoEntry>) {
             itemId = { row ->
                 when (row) {
                     is TodayRow.EventRow -> row.event.uid.hashCode().toLong()
-                    is TodayRow.MemoRow -> row.memo.time.toSecondOfDay().toLong() + 1_000_000L
+                    // Fixes #3: same-minute memos need distinct ids — mix body hash.
+                    is TodayRow.MemoRow -> row.memo.time.toSecondOfDay().toLong() * 31L +
+                        row.memo.body.hashCode().toLong()
                 }
             },
         ) { row ->

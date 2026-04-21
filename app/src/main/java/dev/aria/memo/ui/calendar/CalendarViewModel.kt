@@ -8,11 +8,13 @@ import dev.aria.memo.data.MemoEntry
 import dev.aria.memo.data.MemoRepository
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.local.EventEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -42,6 +44,8 @@ class CalendarViewModel(
     private val allEvents = eventRepo.observeAll()
     private val allNotes = memoRepo.observeNotes()
 
+    // Fixes #7: markers + per-day aggregation iterate every event × every spanned day.
+    // Push that work off Main so large calendars don't block UI compose.
     val state: StateFlow<CalendarUiState> = combine(allEvents, allNotes, _selected) { events, notes, sel ->
         val zoneId = ZoneId.systemDefault()
 
@@ -71,7 +75,7 @@ class CalendarViewModel(
             daySummary = DaySummary(events = dayEvents, memos = dayMemos),
             markedDates = markers,
         )
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, CalendarUiState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, CalendarUiState())
 
     fun selectDate(date: LocalDate) { _selected.value = date }
 

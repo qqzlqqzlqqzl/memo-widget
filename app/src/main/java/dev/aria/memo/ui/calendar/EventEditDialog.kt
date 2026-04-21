@@ -74,7 +74,9 @@ fun EventEditDialog(
         } else ((now.hour + 1) % 24) to now.minute
     }
 
-    var editingStart by remember { mutableStateOf<Boolean?>(null) } // null = not showing picker, true = start, false = end
+    // Fixes #4: rememberSaveable so a config change (rotate/theme) doesn't blow away
+    // the picker the user is actively using.
+    var editingStart by rememberSaveable { mutableStateOf<Boolean?>(null) } // null = not showing picker, true = start, false = end
     var startHour by rememberSaveable(event?.uid) { mutableStateOf(initialStartHour) }
     var startMin by rememberSaveable(event?.uid) { mutableStateOf(initialStartMin) }
     var endHour by rememberSaveable(event?.uid) { mutableStateOf(initialEndHour) }
