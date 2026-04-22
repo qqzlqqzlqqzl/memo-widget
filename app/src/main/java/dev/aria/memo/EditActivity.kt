@@ -39,8 +39,13 @@ class EditActivity : ComponentActivity() {
             MemoTheme {
                 EditScreen(
                     viewModel = viewModel,
-                    onSaved = { finish() },
-                    onBack = { finish() },
+                    // Guard against a second Success landing after we've
+                    // already asked for finish() — Activity teardown is async,
+                    // so the compose tree stays alive for a few frames, and we
+                    // don't want a stray re-entry into finish() from a repeat
+                    // save that's been swallowed by the ViewModel's dedup.
+                    onSaved = { if (!isFinishing) finish() },
+                    onBack = { if (!isFinishing) finish() },
                 )
             }
         }

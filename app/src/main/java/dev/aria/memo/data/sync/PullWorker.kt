@@ -6,19 +6,26 @@ import androidx.work.WorkerParameters
 import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.SingleNoteRepository
 import dev.aria.memo.data.ics.IcsCodec
 import dev.aria.memo.data.local.NoteFileEntity
+import dev.aria.memo.data.local.SingleNoteEntity
 import java.time.LocalDate
+import java.time.LocalTime
+import java.util.UUID
 
 /**
- * Periodic pull of recent notes and all events from GitHub.
+ * Periodic pull of recent notes, single notes, and all events from GitHub.
  *
- * Notes: 14-day sliding window by `YYYY-MM-DD.md` filename.
+ * Notes (legacy day-file): 14-day sliding window by `YYYY-MM-DD.md` filename.
+ * Single notes (P5 obsidian-style): directory listing of `notes/` — diff by
+ *   SHA, fetch changed ones, upsert Room keyed on filePath. Local pins are
+ *   preserved across pull.
  * Events: directory listing of `events/` — diff by SHA, fetch changed ones,
  *   decode iCalendar, upsert Room. Events not in the remote listing but
  *   present in Room (non-dirty) are hard-deleted to reflect the GitHub state.
  *
- * Dirty rows in either table are skipped so local edits are never clobbered.
+ * Dirty rows in any table are skipped so local edits are never clobbered.
  */
 class PullWorker(
     appContext: Context,
@@ -31,6 +38,7 @@ class PullWorker(
         val api = ServiceLocator.api()
         val noteDao = ServiceLocator.noteDao()
         val eventDao = ServiceLocator.eventDao()
+        val singleNoteDao = ServiceLocator.singleNoteDao()
         val config = settings.current()
         if (!config.isConfigured) return Result.success()
 
@@ -155,7 +163,105 @@ class PullWorker(
             }
         }
 
+        // --- single notes (P5 obsidian-style) -----------------------------
+        // List `notes/`, diff by SHA, fetch changed ones, upsert Room.
+        // `filePath` is UNIQUE, so we locate existing rows by it just like
+        // the events arm. Local-only fields (isPinned) are preserved across
+        // pulls — mirrors the S1 fix we applied to event reminders.
+        when (val res = api.listDir(config, "notes")) {
+            is MemoResult.Ok -> {
+                val remote = res.value.filter { it.type == "file" && it.name.endsWith(".md") }
+                val remotePaths = remote.map { it.path }.toSet()
+                var pullsThisCycle = 0
+                for (item in remote) {
+                    if (pullsThisCycle >= MAX_PULLS_PER_CYCLE) {
+                        // Respect the same per-cycle budget that protects us
+                        // against rate-limit exhaustion on the events arm.
+                        anyNetwork = true
+                        break
+                    }
+                    val localByPath = singleNoteDao.getByPath(item.path)
+                    if (localByPath?.dirty == true) continue
+                    if (localByPath != null && localByPath.githubSha == item.sha) continue
+                    pullsThisCycle++
+                    when (val fileRes = api.getFile(config, item.path)) {
+                        is MemoResult.Ok -> {
+                            val text = runCatching { fileRes.value.decodedContent }
+                                .getOrNull() ?: continue
+                            val nowMs = System.currentTimeMillis()
+                            val parsedDate = parseDateFromSingleNoteFilename(item.name)
+                                ?: localByPath?.date
+                                ?: today
+                            val parsedTime = parseTimeFromSingleNoteFilename(item.name)
+                                ?: localByPath?.time
+                                ?: LocalTime.MIDNIGHT
+                            val title = SingleNoteRepository.extractTitle(text)
+                            val entity = SingleNoteEntity(
+                                uid = localByPath?.uid ?: UUID.randomUUID().toString(),
+                                filePath = item.path,
+                                title = title,
+                                body = text,
+                                date = parsedDate,
+                                time = parsedTime,
+                                // Preserve the user's local pin. Front matter in
+                                // the body still exists — the UI can surface it
+                                // if we choose to mirror the day-file approach.
+                                isPinned = localByPath?.isPinned ?: false,
+                                githubSha = item.sha,
+                                localUpdatedAt = localByPath?.localUpdatedAt ?: nowMs,
+                                remoteUpdatedAt = nowMs,
+                                dirty = false,
+                                tombstoned = false,
+                            )
+                            singleNoteDao.upsert(entity)
+                        }
+                        is MemoResult.Err -> when (fileRes.code) {
+                            ErrorCode.NETWORK -> anyNetwork = true
+                            else -> Unit
+                        }
+                    }
+                }
+                // Drop local rows that remote no longer has (unless dirty or
+                // tombstoned — those have pending local work).
+                for (local in singleNoteDao.snapshotAll()) {
+                    if (local.dirty || local.tombstoned) continue
+                    if (local.filePath !in remotePaths) {
+                        singleNoteDao.hardDelete(local.uid)
+                    }
+                }
+            }
+            is MemoResult.Err -> when (res.code) {
+                ErrorCode.NOT_FOUND -> Unit // no notes/ dir yet
+                ErrorCode.NETWORK -> anyNetwork = true
+                ErrorCode.UNAUTHORIZED -> return Result.success()
+                else -> Unit
+            }
+        }
+
         return if (anyNetwork) Result.retry() else Result.success()
+    }
+
+    /**
+     * Parse the date component from a P5 single-note filename. Accepts
+     * `YYYY-MM-DD-HHMM-<slug>.md` — the first 10 chars are the date. Returns
+     * null when the prefix doesn't parse so the caller can fall back.
+     */
+    private fun parseDateFromSingleNoteFilename(fileName: String): LocalDate? {
+        val m = SINGLE_NOTE_FILENAME.matchEntire(fileName) ?: return null
+        return runCatching { LocalDate.parse(m.groupValues[1]) }.getOrNull()
+    }
+
+    /**
+     * Parse the time component (`HHMM`) from a P5 single-note filename.
+     * Returns null when the prefix doesn't parse.
+     */
+    private fun parseTimeFromSingleNoteFilename(fileName: String): LocalTime? {
+        val m = SINGLE_NOTE_FILENAME.matchEntire(fileName) ?: return null
+        val hhmm = m.groupValues[2]
+        val hour = hhmm.substring(0, 2).toIntOrNull() ?: return null
+        val minute = hhmm.substring(2, 4).toIntOrNull() ?: return null
+        if (hour !in 0..23 || minute !in 0..59) return null
+        return LocalTime.of(hour, minute)
     }
 
     /**
@@ -220,5 +326,12 @@ class PullWorker(
         /** Fixes #19: cap bootstrap note GETs per cycle for the same reason. */
         const val MAX_BOOTSTRAP_PULLS_PER_CYCLE = 50
         val NOTE_FILENAME = Regex("""\d{4}-\d{2}-\d{2}\.md""")
+        /**
+         * P5 obsidian-style single note filename:
+         *   `YYYY-MM-DD-HHMM-<slug>.md`
+         * Captures the date and HHMM components so the pull worker can
+         * reconstruct the authoring timestamp without opening the file body.
+         */
+        val SINGLE_NOTE_FILENAME = Regex("""(\d{4}-\d{2}-\d{2})-(\d{4})-.+\.md""")
     }
 }

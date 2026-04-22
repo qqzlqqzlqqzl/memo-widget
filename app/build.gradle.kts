@@ -14,8 +14,8 @@ android {
         applicationId = "dev.aria.memo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.8.0-p5"
+        versionCode = 9
+        versionName = "0.9.0-p6"
 
         vectorDrawables {
             useSupportLibrary = true

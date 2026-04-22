@@ -47,6 +47,7 @@ class PushWorker(
         val api = ServiceLocator.api()
         val noteDao = ServiceLocator.noteDao()
         val eventDao = ServiceLocator.eventDao()
+        val singleNoteDao = ServiceLocator.singleNoteDao()
         val config = settings.current()
         if (!config.isConfigured) {
             SyncStatusBus.emit(SyncStatus.Error(ErrorCode.NOT_CONFIGURED, "还没配置 GitHub"))
@@ -55,7 +56,10 @@ class PushWorker(
 
         val pendingNotes = noteDao.pending()
         val pendingEvents = eventDao.pending()
-        if (pendingNotes.isEmpty() && pendingEvents.isEmpty()) return Result.success()
+        val pendingSingleNotes = singleNoteDao.pending()
+        if (pendingNotes.isEmpty() && pendingEvents.isEmpty() && pendingSingleNotes.isEmpty()) {
+            return Result.success()
+        }
         SyncStatusBus.emit(SyncStatus.Syncing)
 
         var retry = false
@@ -158,6 +162,77 @@ class PushWorker(
                     when (val res = api.putFile(config, row.filePath, req)) {
                         is MemoResult.Ok -> {
                             eventDao.markClean(row.uid, res.value.content.sha, System.currentTimeMillis())
+                            MemoResult.Ok(Unit)
+                        }
+                        is MemoResult.Err -> MemoResult.Err(res.code, res.message)
+                    }
+                }
+            }
+            if (outcome is MemoResult.Err) {
+                when (outcome.code) {
+                    ErrorCode.NETWORK, ErrorCode.CONFLICT -> {
+                        retry = true
+                        lastError = outcome.code to outcome.message
+                    }
+                    ErrorCode.UNAUTHORIZED -> {
+                        SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, outcome.message))
+                        return Result.failure()
+                    }
+                    else -> lastError = outcome.code to outcome.message
+                }
+            }
+        }
+
+        // --- single notes (P5 obsidian-style) -----------------------------
+        // Same PathLocker + tombstone semantics as the events arm. Each row is
+        // a standalone markdown file under `notes/`. Tombstones drive DELETE;
+        // fresh rows (no githubSha) get a plain PUT; subsequent edits re-PUT
+        // with the known SHA. Conflict/network errors trigger a retry.
+        for (row in pendingSingleNotes) {
+            val outcome: MemoResult<Unit> = PathLocker.withLock(row.filePath) {
+                if (row.tombstoned) {
+                    val sha = row.githubSha
+                    if (sha == null) {
+                        // Never made it to GitHub in the first place — just drop locally.
+                        singleNoteDao.hardDelete(row.uid)
+                        MemoResult.Ok(Unit)
+                    } else {
+                        val req = GhDeleteRequest(
+                            message = "note delete: ${row.filePath}",
+                            sha = sha,
+                            branch = config.branch,
+                        )
+                        when (val res = api.deleteFile(config, row.filePath, req)) {
+                            is MemoResult.Ok -> {
+                                singleNoteDao.hardDelete(row.uid)
+                                MemoResult.Ok(Unit)
+                            }
+                            is MemoResult.Err -> when (res.code) {
+                                ErrorCode.NOT_FOUND -> {
+                                    // Already gone remotely — converge.
+                                    singleNoteDao.hardDelete(row.uid)
+                                    MemoResult.Ok(Unit)
+                                }
+                                else -> MemoResult.Err(res.code, res.message)
+                            }
+                        }
+                    }
+                } else {
+                    val encoded = Base64.getEncoder()
+                        .encodeToString(row.body.toByteArray(Charsets.UTF_8))
+                    val req = GhPutRequest(
+                        message = "note: ${row.title.take(40).ifBlank { row.filePath }}",
+                        content = encoded,
+                        branch = config.branch,
+                        sha = row.githubSha,
+                    )
+                    when (val res = api.putFile(config, row.filePath, req)) {
+                        is MemoResult.Ok -> {
+                            singleNoteDao.markClean(
+                                row.uid,
+                                res.value.content.sha,
+                                System.currentTimeMillis(),
+                            )
                             MemoResult.Ok(Unit)
                         }
                         is MemoResult.Err -> MemoResult.Err(res.code, res.message)

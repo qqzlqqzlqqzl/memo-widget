@@ -43,6 +43,22 @@ data class MemoEntry(
 )
 
 /**
+ * A memo entry surfaced *across* day-files, carrying the owning date so the
+ * widget can render a "MM/DD HH:MM" prefix when recent entries span multiple
+ * days. See [MemoRepository.recentEntriesAcrossDays].
+ *
+ * Structurally identical to [MemoEntry] today; kept as a distinct type so the
+ * intent is obvious at call-sites and so future fields (e.g. a pinned flag
+ * hoisted from the containing file) don't leak into the today-only MemoEntry
+ * contract.
+ */
+data class DatedMemoEntry(
+    val date: LocalDate,
+    val time: LocalTime,
+    val body: String,
+)
+
+/**
  * Result wrapper used by all public repository/API methods.
  *
  * Layers below the UI MUST NOT throw — they return [MemoResult] so callers can

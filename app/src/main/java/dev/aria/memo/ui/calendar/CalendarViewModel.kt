@@ -93,6 +93,18 @@ class CalendarViewModel(
 
     fun selectDate(date: LocalDate) { _selected.value = date }
 
+    /**
+     * Double-tap guard for create/update/delete. [EventEditDialog]'s 保存 button
+     * has no "saving" spinner state of its own, and `onSave` fires once per
+     * tap — without this flag a fast double-tap would push two rows into Room
+     * (each with a fresh UUID on create, or two parallel updates on edit) and
+     * surface as duplicate calendar entries. Set when a CRUD coroutine starts,
+     * cleared in its finally block so a retry after a thrown exception still
+     * works.
+     */
+    @Volatile
+    private var mutating: Boolean = false
+
     fun createEvent(
         summary: String,
         startMs: Long,
@@ -101,9 +113,15 @@ class CalendarViewModel(
         reminderMinutesBefore: Int?,
         onDone: () -> Unit = {},
     ) {
+        if (mutating) return
+        mutating = true
         viewModelScope.launch {
-            eventRepo.create(summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
-            onDone()
+            try {
+                eventRepo.create(summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
+                onDone()
+            } finally {
+                mutating = false
+            }
         }
     }
 
@@ -116,16 +134,28 @@ class CalendarViewModel(
         reminderMinutesBefore: Int?,
         onDone: () -> Unit = {},
     ) {
+        if (mutating) return
+        mutating = true
         viewModelScope.launch {
-            eventRepo.update(uid, summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
-            onDone()
+            try {
+                eventRepo.update(uid, summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
+                onDone()
+            } finally {
+                mutating = false
+            }
         }
     }
 
     fun deleteEvent(uid: String, onDone: () -> Unit = {}) {
+        if (mutating) return
+        mutating = true
         viewModelScope.launch {
-            eventRepo.delete(uid)
-            onDone()
+            try {
+                eventRepo.delete(uid)
+                onDone()
+            } finally {
+                mutating = false
+            }
         }
     }
 

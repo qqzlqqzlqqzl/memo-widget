@@ -85,6 +85,15 @@ fun EditScreen(
     LaunchedEffect(state) {
         when (val s = state) {
             is SaveState.Success -> {
+                // Clear the editor text immediately so the user can *see* the
+                // save landed — an empty field on a disabled button is a
+                // stronger "done" signal than leaving the text sitting there,
+                // and it removes the "I'll tap save once more to be sure"
+                // reflex that produced the duplicate-block bug. ViewModel's
+                // duplicate-save window is the authoritative guard; this is a
+                // UX belt on top of it.
+                editorBody = ""
+                viewModel.setBody("")
                 viewModel.reset()
                 onSaved()
             }

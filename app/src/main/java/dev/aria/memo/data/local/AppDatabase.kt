@@ -9,14 +9,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [NoteFileEntity::class, EventEntity::class],
-    version = 7,
+    entities = [NoteFileEntity::class, EventEntity::class, SingleNoteEntity::class],
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun eventDao(): EventDao
+    abstract fun singleNoteDao(): SingleNoteDao
 
     companion object {
         /** v1 → v2: add the events table. */
@@ -78,12 +79,53 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v7 → v8: introduce the Obsidian-style one-note-per-file table
+         * (`single_notes`) alongside the legacy day-file table. The two
+         * tables co-exist — readers merge them, writers use the new one.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `single_notes` (
+                        `uid` TEXT NOT NULL,
+                        `filePath` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `body` TEXT NOT NULL,
+                        `date` INTEGER NOT NULL,
+                        `time` INTEGER NOT NULL,
+                        `isPinned` INTEGER NOT NULL,
+                        `githubSha` TEXT,
+                        `localUpdatedAt` INTEGER NOT NULL,
+                        `remoteUpdatedAt` INTEGER,
+                        `dirty` INTEGER NOT NULL,
+                        `tombstoned` INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(`uid`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_single_notes_filePath` " +
+                        "ON `single_notes` (`filePath`)"
+                )
+            }
+        }
+
         fun build(context: Context): AppDatabase = Room.databaseBuilder(
             context.applicationContext,
             AppDatabase::class.java,
             "memo.db",
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            .addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+            )
             .build()
     }
 }

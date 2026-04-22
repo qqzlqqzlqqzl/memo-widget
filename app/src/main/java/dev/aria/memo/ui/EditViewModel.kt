@@ -1,5 +1,6 @@
 package dev.aria.memo.ui
 
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -23,9 +24,26 @@ sealed class SaveState {
     data class Error(val code: ErrorCode, val message: String) : SaveState()
 }
 
-class EditViewModel(
-    private val repository: MemoRepository,
+/**
+ * Functional-style dependencies extracted from [MemoRepository]. Lets tests
+ * inject fake implementations without constructing a real Android [Context] /
+ * DataStore / Room stack — the only lever the ViewModel needs is a suspend
+ * function that appends today's memo, plus one that toggles a checklist line.
+ */
+private typealias AppendToday = suspend (String) -> MemoResult<Unit>
+private typealias ToggleTodoLine = suspend (String, Int, String, Boolean) -> MemoResult<Unit>
+
+class EditViewModel @VisibleForTesting internal constructor(
+    private val appendToday: AppendToday,
+    private val toggleTodoLine: ToggleTodoLine,
+    private val clock: () -> Long = { System.currentTimeMillis() },
 ) : ViewModel() {
+
+    /** Production binding — routes to the real repository. */
+    constructor(repository: MemoRepository) : this(
+        appendToday = { body -> repository.appendToday(body) },
+        toggleTodoLine = { p, i, raw, c -> repository.toggleTodoLine(p, i, raw, c) },
+    )
 
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()
@@ -47,6 +65,21 @@ class EditViewModel(
      */
     private val _path = MutableStateFlow("")
     val path: StateFlow<String> = _path.asStateFlow()
+
+    /**
+     * Idempotency guard for the save path. After a Success we remember the
+     * trimmed body we just pushed and the wall-clock time we pushed it; a
+     * repeat call within [DUPLICATE_SAVE_WINDOW_MS] with the same body
+     * short-circuits back into [SaveState.Success] without invoking the
+     * repository a second time.
+     *
+     * Fixes the "double-tap after Success" race: EditScreen's LaunchedEffect
+     * calls `reset()` before `onSaved() → finish()` completes, leaving a tiny
+     * window in which the button is re-enabled, the editor text still matches,
+     * and a second tap would otherwise append the same `## HH:MM` block again.
+     */
+    private var lastCommittedBody: String? = null
+    private var lastCommittedAtMs: Long = 0L
 
     /**
      * Prime the ViewModel with a path and an initial body. Called from
@@ -88,8 +121,15 @@ class EditViewModel(
      * Append `body` to today's file via the repository. Result lands in
      * [state]; callers observe via collectAsState and react to Success/Error.
      *
-     * Guards against concurrent double-tap saves by short-circuiting while
-     * in Saving.
+     * Two layers of guard:
+     *  1. Concurrent double-tap: short-circuit while a Saving is already
+     *     in-flight. This is the cheap fast path.
+     *  2. Post-reset double-tap: EditScreen resets to Idle *before* finish()
+     *     completes, so step 1 alone isn't enough — a second tap in that tiny
+     *     window would append a duplicate `## HH:MM` block. If the same
+     *     trimmed body was successfully committed within
+     *     [DUPLICATE_SAVE_WINDOW_MS], we replay [SaveState.Success] without
+     *     calling the repository.
      */
     fun save(body: String) {
         if (_state.value is SaveState.Saving) return
@@ -99,10 +139,27 @@ class EditViewModel(
             return
         }
 
+        // Post-reset idempotency: if the same body was just accepted, surface
+        // Success again instead of hitting the repository. EditScreen's
+        // LaunchedEffect will resume the onSaved() → finish() path; the
+        // duplicate tap is swallowed without corrupting the md file.
+        val lastBody = lastCommittedBody
+        if (lastBody != null &&
+            lastBody == trimmed &&
+            clock() - lastCommittedAtMs < DUPLICATE_SAVE_WINDOW_MS
+        ) {
+            _state.value = SaveState.Success
+            return
+        }
+
         _state.value = SaveState.Saving
         viewModelScope.launch {
-            _state.value = when (val res = repository.appendToday(trimmed)) {
-                is MemoResult.Ok -> SaveState.Success
+            _state.value = when (val res = appendToday(trimmed)) {
+                is MemoResult.Ok -> {
+                    lastCommittedBody = trimmed
+                    lastCommittedAtMs = clock()
+                    SaveState.Success
+                }
                 is MemoResult.Err -> SaveState.Error(res.code, humanMessage(res.code, res.message))
             }
         }
@@ -141,7 +198,7 @@ class EditViewModel(
         _body.value = lines.joinToString("\n")
 
         viewModelScope.launch {
-            when (val res = repository.toggleTodoLine(currentPath, lineIndex, rawLine, newChecked)) {
+            when (val res = toggleTodoLine(currentPath, lineIndex, rawLine, newChecked)) {
                 is MemoResult.Ok -> Unit
                 is MemoResult.Err -> when (res.code) {
                     ErrorCode.CONFLICT -> {
@@ -182,6 +239,16 @@ class EditViewModel(
 
     companion object {
         private val TOGGLE_REGEX = Regex("""^([ \t]*)- \[([ xX])] (.*)$""")
+
+        /**
+         * How long after a successful save a repeat call with the same trimmed
+         * body is swallowed instead of appended again. 2 seconds is long
+         * enough to cover Compose's Success → reset → finish transition
+         * (usually a few hundred ms) but short enough that a genuine re-edit
+         * of the same text a moment later still persists.
+         */
+        @VisibleForTesting
+        internal const val DUPLICATE_SAVE_WINDOW_MS: Long = 2_000L
 
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

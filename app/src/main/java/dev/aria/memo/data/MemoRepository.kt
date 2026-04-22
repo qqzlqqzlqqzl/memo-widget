@@ -6,6 +6,7 @@ import dev.aria.memo.data.local.NoteFileEntity
 import dev.aria.memo.data.sync.PathLocker
 import dev.aria.memo.data.sync.SyncScheduler
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -281,6 +282,45 @@ class MemoRepository(
         }
 
         /**
+         * Pure helper for [recentEntriesAcrossDays]: merge entries parsed from
+         * every file in [files] into a single newest-first list and take the
+         * top [limit]. Exposed on the companion so JVM tests can exercise it
+         * without constructing a live [MemoRepository].
+         *
+         * Files are walked date-descending so the parse can short-circuit once
+         * we have enough entries to fill [limit]. Ties on (date, time) retain
+         * the file's own parse order (newest-time-within-file wins) — stable
+         * ordering the UI can rely on for row keys.
+         */
+        internal fun mergeRecentAcrossDays(
+            files: List<NoteFileEntity>,
+            limit: Int,
+        ): List<DatedMemoEntry> {
+            if (limit <= 0 || files.isEmpty()) return emptyList()
+            // Sort by date DESC so we can stop scanning once we have `limit`
+            // entries — files older than the cutoff can only yield entries
+            // older than the ones already collected.
+            val sortedFiles = files.sortedByDescending { it.date }
+            val collected = ArrayList<DatedMemoEntry>(limit * 2)
+            for (file in sortedFiles) {
+                val perFile = parseEntries(file.content, file.date)
+                // parseEntries already returns newest-time-first inside the day.
+                for (entry in perFile) {
+                    collected += DatedMemoEntry(
+                        date = file.date,
+                        time = entry.time,
+                        body = entry.body,
+                    )
+                }
+                // Short-circuit: once we have at least `limit` entries, further
+                // files can only contribute strictly-older-date entries (the
+                // input is sorted date-desc), so they can never bump the top-N.
+                if (collected.size >= limit) break
+            }
+            return collected.take(limit)
+        }
+
+        /**
          * Regex used by [toggleTodoLine] to recognise a single markdown checkbox
          * line. Kept in the companion so tests can pin the exact pattern without
          * importing the UI-layer parser.
@@ -371,5 +411,45 @@ class MemoRepository(
                 }
             }
         }
+    }
+
+    // --- cross-day recent feed ---------------------------------------------
+    //
+    // Widget bug fix: [recentEntries] only looks at today's `YYYY-MM-DD.md`,
+    // so if the user didn't write today the widget showed nothing, even if
+    // yesterday's file had fresh content. [recentEntriesAcrossDays] walks
+    // every cached day-file in Room, parses all `## HH:MM` entries, and
+    // returns the newest [limit] entries by (date, time). The widget renders
+    // each row with its date so cross-day rows are unambiguous.
+    //
+    // Why read via [NoteDao.observeAll] rather than adding a new @Query: the
+    // DAO contract is frozen for this change — `observeAll().first()` gives
+    // us a one-shot snapshot that is cheap for the handful of day-files a
+    // user realistically has cached. The expensive bit (markdown parse) is
+    // done in memory after the DAO call returns; the helper short-circuits
+    // once it has collected [limit] entries, so total work is O(k) in the
+    // number of day-files actually touched to fill the widget.
+
+    /**
+     * Return the most recent [limit] memo entries across all cached day-files,
+     * newest first. Falls back gracefully when Room is empty (returns `[]`).
+     *
+     * Ordering:
+     *  - primary: [DatedMemoEntry.date] descending
+     *  - secondary: [DatedMemoEntry.time] descending
+     *  - tertiary (stable): original parse order within the same (date, time)
+     *    bucket — first entry in the file wins, so ties are deterministic.
+     *
+     * Respects [AppConfig.isConfigured]: returns [ErrorCode.NOT_CONFIGURED]
+     * when PAT/owner/repo are missing so the widget can prompt the user.
+     */
+    suspend fun recentEntriesAcrossDays(limit: Int = 3): MemoResult<List<DatedMemoEntry>> {
+        val config = settings.current()
+        if (!config.isConfigured) {
+            return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "PAT/owner/repo missing")
+        }
+        if (limit <= 0) return MemoResult.Ok(emptyList())
+        val all = dao.observeAll().first()
+        return MemoResult.Ok(mergeRecentAcrossDays(all, limit))
     }
 }
