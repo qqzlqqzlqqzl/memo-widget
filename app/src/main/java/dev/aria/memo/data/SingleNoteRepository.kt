@@ -7,6 +7,8 @@ import dev.aria.memo.data.notes.FrontMatterCodec
 import dev.aria.memo.data.notes.NoteSlugger
 import dev.aria.memo.data.sync.PathLocker
 import dev.aria.memo.data.sync.SyncScheduler
+import dev.aria.memo.data.sync.SyncStatus
+import dev.aria.memo.data.sync.SyncStatusBus
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -52,9 +54,6 @@ class SingleNoteRepository(
         now: LocalDateTime = LocalDateTime.now(),
     ): MemoResult<SingleNoteEntity> {
         val config = settings.current()
-        if (!config.isConfigured) {
-            return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "not configured")
-        }
         // Build entity first so we know the filePath — needed to scope the lock.
         val entity = buildEntityForCreate(
             body = body,
@@ -63,12 +62,31 @@ class SingleNoteRepository(
             nowMs = System.currentTimeMillis(),
         )
         // Fixes #40 (P6.1): serialise the upsert against any in-flight
-        // PushWorker on the same filePath. Mirrors MemoRepository.appendToday
-        // which put the same guard in after issue #6.
+        // PushWorker on the same filePath.
         return PathLocker.withLock(entity.filePath) {
+            // Fixes #57 (P6.1.1): write to Room FIRST, even when PAT is not
+            // configured. Otherwise a first-install user tapping "+" before
+            // configuring GitHub would silently lose the body. The row stays
+            // `dirty=true` and PushWorker picks it up once the user configures
+            // a PAT (SyncScheduler.enqueuePush is a no-op on unconfigured
+            // state; the periodic worker reconciles on next run).
             dao.upsert(entity)
-            SyncScheduler.enqueuePush(appContext)
-            MemoResult.Ok(entity)
+            if (config.isConfigured) {
+                SyncScheduler.enqueuePush(appContext)
+                MemoResult.Ok(entity)
+            } else {
+                // Let the UI know the body is safe locally but nothing will
+                // upload until the user configures GitHub. Returns Ok because
+                // from the user's point of view the save succeeded — the push
+                // is deferred, not failed.
+                SyncStatusBus.emit(
+                    SyncStatus.Error(
+                        ErrorCode.NOT_CONFIGURED,
+                        "笔记已存本地 · 待配置 GitHub 后自动同步",
+                    )
+                )
+                MemoResult.Ok(entity)
+            }
         }
     }
 

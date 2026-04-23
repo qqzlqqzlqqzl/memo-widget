@@ -200,8 +200,10 @@ class EditViewModel @VisibleForTesting internal constructor(
             val config = ServiceLocator.settingsStore.current()
             val resolvedPath = extraPath?.takeIf { it.isNotBlank() }
                 ?: config.filePathFor(java.time.LocalDate.now())
+            // Fixes #56 (P6.1.1): go through the repository instead of the
+            // DAO so UI → Repository → DAO layering is preserved.
             val resolvedBody = extraBody
-                ?: ServiceLocator.noteDao().get(resolvedPath)?.content
+                ?: ServiceLocator.repository.getContentForPath(resolvedPath)
                 ?: ""
             loadFor(resolvedPath, resolvedBody)
         }
@@ -295,7 +297,8 @@ class EditViewModel @VisibleForTesting internal constructor(
                 is MemoResult.Ok -> Unit
                 is MemoResult.Err -> when (res.code) {
                     ErrorCode.CONFLICT -> {
-                        val latest = ServiceLocator.noteDao().get(currentPath)?.content.orEmpty()
+                        // Fixes #56 (P6.1.1): repository delegate.
+                val latest = ServiceLocator.repository.getContentForPath(currentPath).orEmpty()
                         _body.value = latest
                         _state.value = SaveState.Error(
                             ErrorCode.CONFLICT,

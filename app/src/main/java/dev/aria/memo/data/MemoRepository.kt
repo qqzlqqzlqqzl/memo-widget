@@ -34,6 +34,16 @@ class MemoRepository(
 
     fun observeNotes(): Flow<List<NoteFileEntity>> = dao.observeAll()
 
+    /**
+     * Thin read-through for UI layers that need a raw content snapshot
+     * without subscribing to a Flow. Returns null when the path isn't cached.
+     *
+     * Fixes #56 (P6.1.1): removes the direct `ServiceLocator.noteDao().get()`
+     * that [EditViewModel.prime] and `toggleChecklist` used — the UI layer
+     * now only talks to the repository, restoring UI → Repository → DAO layering.
+     */
+    suspend fun getContentForPath(path: String): String? = dao.get(path)?.content
+
     suspend fun appendToday(
         body: String,
         now: LocalDateTime = LocalDateTime.now(),
@@ -386,6 +396,20 @@ class MemoRepository(
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "PAT/owner/repo missing")
         }
         if (limit <= 0) return MemoResult.Ok(emptyList())
+        // Fixes #51 (P6.1.1): LIMIT pushdown. Each day-file carries multiple
+        // `## HH:MM` entries, so SQL can't be limited to `:limit` entries —
+        // but asking Room for `limit * 2 + 1` FILES almost always yields
+        // enough entries to fill the widget on a single DB read instead
+        // of dragging the whole table into memory. Falls back to all files
+        // only if the pool doesn't produce enough entries (super-sparse case).
+        val fileLimit = limit * 2 + 1
+        val recent = dao.observeRecent(fileLimit).first()
+        val merged = mergeRecentAcrossDays(recent, limit)
+        if (merged.size >= limit || recent.size < fileLimit) {
+            return MemoResult.Ok(merged)
+        }
+        // Rare: every file in the pool contributed very few entries; fall
+        // through to the full table so the widget still has content.
         val all = dao.observeAll().first()
         return MemoResult.Ok(mergeRecentAcrossDays(all, limit))
     }
