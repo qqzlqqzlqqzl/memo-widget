@@ -17,11 +17,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +67,10 @@ fun NoteListScreen(
     viewModel: NoteListViewModel,
     onOpenEditor: () -> Unit,
     modifier: Modifier = Modifier,
+    // Fixes #71 (P7.0.1): accept an optional noteUid so SingleNoteRow can
+    // deep-link into the AI chat with the current note pinned as context.
+    // Keyword default = null preserves the tab-level entry (no note selected).
+    onOpenAiChat: (noteUid: String?) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     // Fixes #11: surface sync failures so the user knows when pushes stop landing.
@@ -91,6 +98,9 @@ fun NoteListScreen(
             LargeTopAppBar(
                 title = { Text("笔记") },
                 actions = {
+                    IconButton(onClick = { onOpenAiChat(null) }) {
+                        Icon(Icons.Filled.Psychology, contentDescription = "AI 助手")
+                    }
                     IconButton(onClick = viewModel::refresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "同步")
                     }
@@ -121,6 +131,7 @@ fun NoteListScreen(
                     viewModel.onQueryChange(it)
                 },
                 onTogglePin = { path, pinned -> viewModel.togglePin(path, pinned) },
+                onAskAiForNote = onOpenAiChat,
                 listState = listState,
                 innerPadding = PaddingValues(0.dp),
             )
@@ -161,6 +172,7 @@ private fun NoteListBody(
     query: String,
     onQueryChange: (String) -> Unit,
     onTogglePin: (String, Boolean) -> Unit,
+    onAskAiForNote: (noteUid: String?) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     innerPadding: PaddingValues,
 ) {
@@ -215,7 +227,7 @@ private fun NoteListBody(
                     item(key = "section-pinned") {
                         MemoSectionHeader(text = "📌 置顶")
                     }
-                    renderItems(pinned, onTogglePin, openSingleNote)
+                    renderItems(pinned, onTogglePin, openSingleNote, onAskAiForNote)
                 }
                 if (unpinned.isNotEmpty()) {
                     if (pinned.isNotEmpty()) {
@@ -223,7 +235,7 @@ private fun NoteListBody(
                             MemoSectionHeader(text = "全部笔记")
                         }
                     }
-                    renderItems(unpinned, onTogglePin, openSingleNote)
+                    renderItems(unpinned, onTogglePin, openSingleNote, onAskAiForNote)
                 }
                 item(key = "footer-spacer") {
                     // Leave breathing room below the last card so the FAB doesn't
@@ -243,6 +255,7 @@ private fun LazyListScope.renderItems(
     list: List<NoteListUiItem>,
     onTogglePin: (String, Boolean) -> Unit,
     onOpenSingleNote: (String) -> Unit,
+    onAskAiForNote: (noteUid: String?) -> Unit,
 ) {
     list.forEach { item ->
         when (item) {
@@ -261,6 +274,7 @@ private fun LazyListScope.renderItems(
                         note = item,
                         onTogglePin = onTogglePin,
                         onOpen = onOpenSingleNote,
+                        onAskAi = { onAskAiForNote(item.uid) },
                     )
                 }
             }
@@ -333,11 +347,19 @@ private fun SingleNoteRow(
     note: NoteListUiItem.SingleNote,
     onTogglePin: (String, Boolean) -> Unit,
     onOpen: (String) -> Unit,
+    onAskAi: () -> Unit,
 ) {
-    MemoCard(
-        accentColor = MaterialTheme.colorScheme.tertiary,
-        onClick = { onOpen(note.uid) },
-    ) {
+    // Fixes #71 (P7.0.1): long-press menu exposing "问 AI"; the tap opens
+    // the note as before. Anchor is the MemoCard, menu offset trails the
+    // finger so the user sees both items without moving.
+    var menuExpanded by rememberSaveable { mutableStateOf(false) }
+
+    Box {
+        MemoCard(
+            accentColor = MaterialTheme.colorScheme.tertiary,
+            onClick = { onOpen(note.uid) },
+            onLongClick = { menuExpanded = true },
+        ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -380,6 +402,25 @@ private fun SingleNoteRow(
                     tint = if (note.pinned) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        }
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("问 AI") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.Psychology,
+                        contentDescription = null,
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    onAskAi()
+                },
+            )
         }
     }
 }

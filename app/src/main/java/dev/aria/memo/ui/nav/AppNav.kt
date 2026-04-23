@@ -23,12 +23,16 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import dev.aria.memo.ui.SettingsScreen
 import dev.aria.memo.ui.SettingsViewModel
+import dev.aria.memo.ui.ai.AiChatScreen
+import dev.aria.memo.ui.ai.AiChatViewModel
 import dev.aria.memo.ui.calendar.CalendarScreen
 import dev.aria.memo.ui.calendar.CalendarViewModel
 import dev.aria.memo.ui.help.HelpScreen
@@ -104,6 +108,14 @@ fun AppNav(onOpenEditor: () -> Unit) {
                     NoteListScreen(
                         viewModel = vm,
                         onOpenEditor = onOpenEditor,
+                        // Fixes #71 (P7.0.1): forward per-note uid so the
+                        // long-press "问 AI" menu pins the body as context.
+                        onOpenAiChat = { noteUid ->
+                            nav.navigate(
+                                if (noteUid != null) "ai_chat?noteUid=$noteUid"
+                                else "ai_chat"
+                            )
+                        },
                         modifier = Modifier.padding(padding),
                     )
                 }
@@ -136,6 +148,26 @@ fun AppNav(onOpenEditor: () -> Unit) {
                 }
                 composable("help") {
                     HelpScreen(
+                        onBack = { nav.popBackStack() },
+                        modifier = Modifier.padding(padding),
+                    )
+                }
+                composable(
+                    route = "ai_chat?noteUid={noteUid}",
+                    arguments = listOf(
+                        navArgument("noteUid") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        },
+                    ),
+                ) { backStackEntry ->
+                    val noteUid = backStackEntry.arguments?.getString("noteUid")
+                    val vm: AiChatViewModel = viewModel(
+                        factory = AiChatViewModel.factoryFor(noteUid),
+                    )
+                    AiChatScreen(
+                        viewModel = vm,
                         onBack = { nav.popBackStack() },
                         modifier = Modifier.padding(padding),
                     )

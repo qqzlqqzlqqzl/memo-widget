@@ -1,6 +1,8 @@
 package dev.aria.memo.data
 
 import android.content.Context
+import dev.aria.memo.data.ai.AiClient
+import dev.aria.memo.data.ai.AiSettingsStore
 import dev.aria.memo.data.local.AppDatabase
 import dev.aria.memo.data.local.EventDao
 import dev.aria.memo.data.local.NoteDao
@@ -28,6 +30,8 @@ object ServiceLocator {
     @Volatile private var _singleNoteRepo: SingleNoteRepository? = null
     @Volatile private var _httpClient: HttpClient? = null
     @Volatile private var _db: AppDatabase? = null
+    @Volatile private var _aiSettings: AiSettingsStore? = null
+    @Volatile private var _aiClient: AiClient? = null
 
     fun init(context: Context) {
         if (_memoRepo != null) return
@@ -55,6 +59,8 @@ object ServiceLocator {
         val memoRepo = MemoRepository(appContext, settings, api, db.noteDao())
         val eventRepo = EventRepository(appContext, settings, api, db.eventDao())
         val singleNoteRepo = SingleNoteRepository(appContext, settings, db.singleNoteDao())
+        val aiSettings = AiSettingsStore(appContext)
+        val aiClient = AiClient(http = client, settings = aiSettings)
 
         _httpClient = client
         _db = db
@@ -63,6 +69,8 @@ object ServiceLocator {
         _memoRepo = memoRepo
         _eventRepo = eventRepo
         _singleNoteRepo = singleNoteRepo
+        _aiSettings = aiSettings
+        _aiClient = aiClient
     }
 
     fun get(): MemoRepository = requireNotNull(_memoRepo) { "ServiceLocator.init() not called" }
@@ -76,9 +84,13 @@ object ServiceLocator {
     fun eventRepository(): EventRepository = requireNotNull(_eventRepo) { "ServiceLocator.init() not called" }
     fun singleNoteRepository(): SingleNoteRepository =
         requireNotNull(_singleNoteRepo) { "ServiceLocator.init() not called" }
+    fun aiSettingsStore(): AiSettingsStore = requireNotNull(_aiSettings) { "ServiceLocator.init() not called" }
+    fun aiClient(): AiClient = requireNotNull(_aiClient) { "ServiceLocator.init() not called" }
 
     val repository: MemoRepository get() = get()
     val settingsStore: SettingsStore get() = settings()
     val eventRepo: EventRepository get() = eventRepository()
     val singleNoteRepo: SingleNoteRepository get() = singleNoteRepository()
+    val aiSettings: AiSettingsStore get() = aiSettingsStore()
+    val ai: AiClient get() = aiClient()
 }

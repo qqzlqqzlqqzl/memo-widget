@@ -28,18 +28,29 @@ import java.util.UUID
  * GitHub. Nothing here throws on configuration problems; callers receive
  * [MemoResult.Err] instead.
  */
-class SingleNoteRepository(
-    private val appContext: Context,
-    private val settings: SettingsStore,
-    private val dao: SingleNoteDao,
+open class SingleNoteRepository(
+    // Nullable-with-null-defaults so unit tests can subclass with overrides
+    // for the read-only methods the AI chat VM uses (observeAll / get) without
+    // having to construct a real Context / SettingsStore / SingleNoteDao.
+    // Runtime callers always pass real instances via ServiceLocator.
+    appContext: Context? = null,
+    settings: SettingsStore? = null,
+    dao: SingleNoteDao? = null,
 ) {
+    private val appContext: Context by lazy { requireNotNull(_appContext) { "appContext not provided" } }
+    private val settings: SettingsStore by lazy { requireNotNull(_settings) { "settings not provided" } }
+    private val dao: SingleNoteDao by lazy { requireNotNull(_dao) { "dao not provided" } }
 
-    fun observeAll(): Flow<List<SingleNoteEntity>> = dao.observeAll()
+    private val _appContext: Context? = appContext
+    private val _settings: SettingsStore? = settings
+    private val _dao: SingleNoteDao? = dao
 
-    fun observeRecent(limit: Int = 20): Flow<List<SingleNoteEntity>> =
+    open fun observeAll(): Flow<List<SingleNoteEntity>> = dao.observeAll()
+
+    open fun observeRecent(limit: Int = 20): Flow<List<SingleNoteEntity>> =
         dao.observeRecent(limit)
 
-    suspend fun get(uid: String): SingleNoteEntity? = dao.get(uid)
+    open suspend fun get(uid: String): SingleNoteEntity? = dao.get(uid)
 
     /**
      * Create a fresh note. The new row is upserted immediately so the UI can

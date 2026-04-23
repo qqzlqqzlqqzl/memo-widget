@@ -77,6 +77,7 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var patVisible by remember { mutableStateOf(false) }
+    var aiKeyVisible by remember { mutableStateOf(false) }
     // Fixes #24: subscribe to the permission bus so denied state surfaces a guidance card.
     val notificationDenied by NotificationPermissionBus.denied.collectAsStateWithLifecycle()
 
@@ -106,10 +107,12 @@ fun SettingsScreen(
     var showOAuthDialog by remember { mutableStateOf(false) }
     var pendingClientId by remember { mutableStateOf("") }
     var clientIdDraft by remember { mutableStateOf("") }
-    androidx.compose.runtime.DisposableEffect(patVisible) {
+    androidx.compose.runtime.DisposableEffect(patVisible, aiKeyVisible) {
         val activity = ctx as? android.app.Activity
         val window = activity?.window
-        if (patVisible) {
+        // Treat the AI api key with the same screen-capture discipline as the
+        // GitHub PAT — either plaintext secret toggling on should turn FLAG_SECURE on.
+        if (patVisible || aiKeyVisible) {
             window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
@@ -129,6 +132,19 @@ fun SettingsScreen(
         if (msg != null) {
             scope.launch { snackbarHostState.showSnackbar(msg) }
             viewModel.consumeError()
+        }
+    }
+    // AI "测试连接" outcomes piggy-back on the same snackbar host. Two distinct
+    // strings so the user can tell which test ran (if more are added later).
+    LaunchedEffect(state.aiTestResult) {
+        val outcome = state.aiTestResult
+        if (outcome != null) {
+            val text = when (outcome) {
+                is AiTestOutcome.Success -> "AI 连接成功 ✓"
+                is AiTestOutcome.Failure -> "AI 连接失败：${outcome.message}"
+            }
+            scope.launch { snackbarHostState.showSnackbar(text) }
+            viewModel.consumeAiTestResult()
         }
     }
 
@@ -163,11 +179,18 @@ fun SettingsScreen(
             state = state,
             patVisible = patVisible,
             onTogglePatVisibility = { patVisible = !patVisible },
+            aiKeyVisible = aiKeyVisible,
+            onToggleAiKeyVisibility = { aiKeyVisible = !aiKeyVisible },
             onPatChange = viewModel::onPatChange,
             onOwnerChange = viewModel::onOwnerChange,
             onRepoChange = viewModel::onRepoChange,
             onBranchChange = viewModel::onBranchChange,
             onSave = viewModel::save,
+            onAiProviderUrlChange = viewModel::onAiProviderUrlChange,
+            onAiModelChange = viewModel::onAiModelChange,
+            onAiApiKeyChange = viewModel::onAiApiKeyChange,
+            onSaveAi = viewModel::saveAiConfig,
+            onTestAi = viewModel::testAiConnection,
             onOpenEditor = onOpenEditor,
             onOpenHelp = onOpenHelp,
             onOAuthSignIn = onOAuthClick,
@@ -269,6 +292,13 @@ private fun SettingsContent(
     onSave: () -> Unit,
     onOpenEditor: () -> Unit,
     innerPadding: PaddingValues,
+    aiKeyVisible: Boolean = false,
+    onToggleAiKeyVisibility: () -> Unit = {},
+    onAiProviderUrlChange: (String) -> Unit = {},
+    onAiModelChange: (String) -> Unit = {},
+    onAiApiKeyChange: (String) -> Unit = {},
+    onSaveAi: () -> Unit = {},
+    onTestAi: () -> Unit = {},
     onOpenHelp: () -> Unit = {},
     onOAuthSignIn: () -> Unit = {},
     notificationDenied: Boolean = false,
@@ -372,7 +402,122 @@ private fun SettingsContent(
             Text("  立即写一条", modifier = Modifier.padding(start = MemoSpacing.xs))
         }
 
+        AiConfigSection(
+            state = state,
+            keyVisible = aiKeyVisible,
+            onToggleKeyVisibility = onToggleAiKeyVisibility,
+            onProviderUrlChange = onAiProviderUrlChange,
+            onModelChange = onAiModelChange,
+            onApiKeyChange = onAiApiKeyChange,
+            onSave = onSaveAi,
+            onTest = onTestAi,
+        )
+
         HelpEntryCard(onOpenHelp = onOpenHelp)
+    }
+}
+
+@Composable
+private fun AiConfigSection(
+    state: SettingsUiState,
+    keyVisible: Boolean,
+    onToggleKeyVisibility: () -> Unit,
+    onProviderUrlChange: (String) -> Unit,
+    onModelChange: (String) -> Unit,
+    onApiKeyChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onTest: () -> Unit,
+) {
+    // Block is a cohesive group — card gives it a visual boundary so the GitHub
+    // fields above and the help card below don't blur together. Accent tint
+    // reuses the tertiary role so it reads as "secondary feature", matching the
+    // help card's styling conventions.
+    MemoCard(accentColor = MaterialTheme.colorScheme.tertiary) {
+        Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+            Text(
+                text = "AI 配置",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            Text(
+                text = "支持 OpenAI / DeepSeek / Azure / ollama 等 OpenAI-compatible endpoint。" +
+                    "密钥仅保存在本机加密存储中。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            OutlinedTextField(
+                value = state.aiProviderUrl,
+                onValueChange = onProviderUrlChange,
+                label = { Text("Provider URL") },
+                placeholder = { Text("https://api.openai.com/v1/chat/completions") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            OutlinedTextField(
+                value = state.aiModel,
+                onValueChange = onModelChange,
+                label = { Text("Model") },
+                placeholder = { Text("gpt-4o-mini / deepseek-chat / llama3") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            OutlinedTextField(
+                value = state.aiApiKey,
+                onValueChange = onApiKeyChange,
+                label = { Text("API Key") },
+                placeholder = { Text("sk-…") },
+                singleLine = true,
+                visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    IconButton(onClick = onToggleKeyVisibility) {
+                        Icon(
+                            imageVector = if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = if (keyVisible) "隐藏 API Key" else "显示 API Key",
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
+            ) {
+                Button(
+                    onClick = onSave,
+                    enabled = !state.isSavingAi && state.loaded,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (state.isSavingAi) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.height(18.dp),
+                        )
+                    } else {
+                        Text("保存 AI 配置")
+                    }
+                }
+                OutlinedButton(
+                    onClick = onTest,
+                    enabled = !state.isTestingAi && state.isAiConfigured,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (state.isTestingAi) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.height(18.dp),
+                        )
+                    } else {
+                        Text("测试连接")
+                    }
+                }
+            }
+        }
     }
 }
 

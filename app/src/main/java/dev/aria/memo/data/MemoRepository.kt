@@ -25,14 +25,30 @@ import java.time.format.DateTimeFormatter
  *  - [observeNotes] is a live Flow over every cached day-file, newest first,
  *    for the notes-list screen.
  */
-class MemoRepository(
-    private val appContext: Context,
-    private val settings: SettingsStore,
-    private val api: GitHubApi,
-    private val dao: NoteDao,
+open class MemoRepository(
+    // Made nullable with null defaults so unit tests can subclass this with a
+    // fake implementation that overrides the two methods it cares about
+    // (`observeNotes`, `getContentForPath`) without having to construct a real
+    // Context/SettingsStore/GitHubApi/NoteDao. Runtime callers always pass
+    // real instances via ServiceLocator; the non-null asserts below only fire
+    // when a test fake forgets to override a method that actually exercises a
+    // backing field, which is a programmer error rather than a runtime issue.
+    appContext: Context? = null,
+    settings: SettingsStore? = null,
+    api: GitHubApi? = null,
+    dao: NoteDao? = null,
 ) {
+    private val appContext: Context by lazy { requireNotNull(_appContext) { "appContext not provided" } }
+    private val settings: SettingsStore by lazy { requireNotNull(_settings) { "settings not provided" } }
+    private val api: GitHubApi by lazy { requireNotNull(_api) { "api not provided" } }
+    private val dao: NoteDao by lazy { requireNotNull(_dao) { "dao not provided" } }
 
-    fun observeNotes(): Flow<List<NoteFileEntity>> = dao.observeAll()
+    private val _appContext: Context? = appContext
+    private val _settings: SettingsStore? = settings
+    private val _api: GitHubApi? = api
+    private val _dao: NoteDao? = dao
+
+    open fun observeNotes(): Flow<List<NoteFileEntity>> = dao.observeAll()
 
     /**
      * Thin read-through for UI layers that need a raw content snapshot
@@ -42,7 +58,7 @@ class MemoRepository(
      * that [EditViewModel.prime] and `toggleChecklist` used — the UI layer
      * now only talks to the repository, restoring UI → Repository → DAO layering.
      */
-    suspend fun getContentForPath(path: String): String? = dao.get(path)?.content
+    open suspend fun getContentForPath(path: String): String? = dao.get(path)?.content
 
     suspend fun appendToday(
         body: String,
