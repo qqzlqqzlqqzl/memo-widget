@@ -39,6 +39,11 @@ jobs:
       - name: Grant execute permission to gradlew
         run: chmod +x gradlew
 
+      # settings.gradle.kts 配了阿里云 Maven 镜像加速国内开发，但阿里云 plugin-portal
+      # 对 `com.google.devtools.ksp` 返回 404 — GitHub runner 上走官方源足够快。
+      - name: Strip aliyun mirrors for CI
+        run: sed -i '/maven\.aliyun\.com/d' settings.gradle.kts
+
       - name: Compile debug
         run: ./gradlew :app:compileDebugKotlin --stacktrace
 
