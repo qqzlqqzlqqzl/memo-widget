@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Aggregate of events + memos on a single day, ready for the day-sheet UI. */
 data class DaySummary(
@@ -98,12 +99,13 @@ class CalendarViewModel(
      * has no "saving" spinner state of its own, and `onSave` fires once per
      * tap — without this flag a fast double-tap would push two rows into Room
      * (each with a fresh UUID on create, or two parallel updates on edit) and
-     * surface as duplicate calendar entries. Set when a CRUD coroutine starts,
-     * cleared in its finally block so a retry after a thrown exception still
-     * works.
+     * surface as duplicate calendar entries.
+     *
+     * P6.1 第 5 项：用 AtomicBoolean.compareAndSet 取代 @Volatile 的
+     * 读-改-写序列，防止两个并发调用同时看到 false 后都进入的理论 race。
+     * compareAndSet(false, true) 是硬件级原子操作，天然互斥。
      */
-    @Volatile
-    private var mutating: Boolean = false
+    private val mutating = AtomicBoolean(false)
 
     fun createEvent(
         summary: String,
@@ -113,14 +115,13 @@ class CalendarViewModel(
         reminderMinutesBefore: Int?,
         onDone: () -> Unit = {},
     ) {
-        if (mutating) return
-        mutating = true
+        if (!mutating.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
                 eventRepo.create(summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
                 onDone()
             } finally {
-                mutating = false
+                mutating.set(false)
             }
         }
     }
@@ -134,27 +135,25 @@ class CalendarViewModel(
         reminderMinutesBefore: Int?,
         onDone: () -> Unit = {},
     ) {
-        if (mutating) return
-        mutating = true
+        if (!mutating.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
                 eventRepo.update(uid, summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
                 onDone()
             } finally {
-                mutating = false
+                mutating.set(false)
             }
         }
     }
 
     fun deleteEvent(uid: String, onDone: () -> Unit = {}) {
-        if (mutating) return
-        mutating = true
+        if (!mutating.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
                 eventRepo.delete(uid)
                 onDone()
             } finally {
-                mutating = false
+                mutating.set(false)
             }
         }
     }

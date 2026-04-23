@@ -11,6 +11,13 @@ interface NoteDao {
     @Query("SELECT * FROM note_files ORDER BY isPinned DESC, date DESC")
     fun observeAll(): Flow<List<NoteFileEntity>>
 
+    /**
+     * LIMIT 下推版本。widget / today-屏幕用，避免 observeAll().first() 全表读
+     * 再内存截断。HANDOFF.md P6.1 第 4 项。
+     */
+    @Query("SELECT * FROM note_files ORDER BY isPinned DESC, date DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<NoteFileEntity>>
+
     @Query("SELECT * FROM note_files WHERE path = :path LIMIT 1")
     suspend fun get(path: String): NoteFileEntity?
 

@@ -2,7 +2,6 @@ package dev.aria.memo.ui.tags
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,17 +12,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -33,10 +34,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.aria.memo.data.tag.TagMatch
 import dev.aria.memo.data.tag.TagNode
+import dev.aria.memo.ui.components.MemoCard
+import dev.aria.memo.ui.components.MemoEmptyState
+import dev.aria.memo.ui.theme.MemoSpacing
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,15 +59,25 @@ fun TagListScreen(
     // (good enough for a transient expansion state).
     val expanded = remember { mutableStateListOf<String>() }
 
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
+            LargeTopAppBar(
                 title = {
                     Text(
                         text = selectedPath?.let { "#$it" } ?: "标签",
                     )
                 },
+                navigationIcon = {
+                    if (selectedPath != null) {
+                        IconButton(onClick = { selectedPath = null }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回标签树")
+                        }
+                    }
+                },
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { inner ->
@@ -70,24 +85,17 @@ fun TagListScreen(
             modifier = Modifier
                 .padding(inner)
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = MemoSpacing.lg),
         ) {
             val selectedNode = selectedPath?.let { findNode(state.root, it) }
             if (selectedNode != null) {
-                TagEntriesList(
-                    node = selectedNode,
-                    onBack = { selectedPath = null },
-                )
+                TagEntriesList(node = selectedNode)
             } else if (state.root.children.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "还没有标签。在笔记正文里写 #work 或 #work/meeting 试试。",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                MemoEmptyState(
+                    icon = Icons.Outlined.Tag,
+                    title = "还没有标签",
+                    subtitle = "在笔记正文里写 #work 或 #work/meeting 试试",
+                )
             } else {
                 TagTree(
                     root = state.root,
@@ -187,10 +195,10 @@ private fun TagRow(
             .fillMaxWidth()
             .clickable { onSelectTag(row.path) }
             .padding(
-                start = (row.depth * 20).dp + 8.dp,
-                end = 8.dp,
-                top = 10.dp,
-                bottom = 10.dp,
+                start = (row.depth * 20).dp + MemoSpacing.sm,
+                end = MemoSpacing.sm,
+                top = MemoSpacing.sm + 2.dp,
+                bottom = MemoSpacing.sm + 2.dp,
             ),
     ) {
         if (row.hasChildren) {
@@ -199,7 +207,7 @@ private fun TagRow(
                 contentDescription = if (row.isExpanded) "折叠" else "展开",
                 modifier = Modifier
                     .clickable { onToggleExpand(row.path) }
-                    .padding(4.dp),
+                    .padding(MemoSpacing.xs),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
@@ -207,10 +215,10 @@ private fun TagRow(
                 imageVector = Icons.AutoMirrored.Filled.Label,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(4.dp),
+                modifier = Modifier.padding(MemoSpacing.xs),
             )
         }
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(MemoSpacing.xs + 2.dp))
         Text(
             text = "#${row.name}",
             style = MaterialTheme.typography.bodyLarge,
@@ -235,43 +243,22 @@ private val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 @Composable
 private fun TagEntriesList(
     node: TagNode,
-    onBack: () -> Unit,
 ) {
     // All matches in this subtree — parent nodes show their own plus all child matches.
     val entries = remember(node) { collectEntries(node) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onBack)
-                .padding(vertical = 8.dp),
+    if (entries.isEmpty()) {
+        MemoEmptyState(
+            icon = Icons.Outlined.Tag,
+            title = "这个标签下还没有笔记",
+        )
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            Text(
-                text = "← 返回标签树",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        if (entries.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "这个标签下还没有笔记。",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(entries.size, key = { "${entries[it].date}-${entries[it].time}-$it" }) { idx ->
-                    EntryCard(entries[idx])
-                }
+            items(entries.size, key = { "${entries[it].date}-${entries[it].time}-$it" }) { idx ->
+                EntryCard(entries[idx])
             }
         }
     }
@@ -291,22 +278,16 @@ private fun collectEntries(node: TagNode): List<TagMatch> {
 
 @Composable
 private fun EntryCard(match: TagMatch) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "${match.date.format(DATE_FMT)} · ${match.time.format(TIME_FMT)}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = match.body,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
+    MemoCard(accentColor = MaterialTheme.colorScheme.primary) {
+        Text(
+            text = "${match.date.format(DATE_FMT)} · ${match.time.format(TIME_FMT)}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = match.body,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = MemoSpacing.xs),
+        )
     }
 }
-

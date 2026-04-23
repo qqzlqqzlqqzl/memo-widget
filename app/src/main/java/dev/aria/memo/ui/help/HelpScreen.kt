@@ -10,14 +10,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,8 +28,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.aria.memo.ui.components.MemoEmptyState
+import dev.aria.memo.ui.theme.MemoSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
@@ -64,10 +69,12 @@ fun HelpScreen(
             .onFailure { errorMessage = it.message ?: "无法加载使用说明" }
     }
 
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
+            LargeTopAppBar(
                 title = { Text("使用说明书") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -77,6 +84,7 @@ fun HelpScreen(
                         )
                     }
                 },
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { inner ->
@@ -87,22 +95,13 @@ fun HelpScreen(
             contentAlignment = Alignment.TopCenter,
         ) {
             when {
-                errorMessage != null -> Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = "无法加载使用说明",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = errorMessage ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                errorMessage != null -> MemoEmptyState(
+                    icon = Icons.Outlined.Info,
+                    title = "无法加载使用说明",
+                    subtitle = errorMessage,
+                )
                 content == null -> CircularProgressIndicator(
-                    modifier = Modifier.padding(32.dp),
+                    modifier = Modifier.padding(MemoSpacing.xxxl),
                 )
                 else -> {
                     // Medium fix: parseBlocks is ~20 KB + regex-heavy; memoize
@@ -113,7 +112,7 @@ fun HelpScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = MemoSpacing.lg, vertical = MemoSpacing.md),
                     ) {
                         RenderMarkdown(
                             source = rememberedSource,

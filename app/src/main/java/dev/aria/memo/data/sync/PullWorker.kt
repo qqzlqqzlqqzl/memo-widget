@@ -44,6 +44,11 @@ class PullWorker(
 
         var anyNetwork = false
 
+        // P6.1 第 6 项：全局 pull 预算，四段共享。旧逻辑三段各自 50/50/50 封顶，
+        // 最坏情况合计 164 次 API call，登录 PAT 用户 5000/h 虽够但 secondary
+        // rate-limit 仍可能被触发。150 上限保证单轮不爆表。
+        val budget = PullBudget()
+
         // --- notes ---------------------------------------------------------
         // Fixes #5: when the local cache is empty, list the repo root and pull
         // every `YYYY-MM-DD.md` up front so freshly-installed devices / cleared
@@ -51,7 +56,7 @@ class PullWorker(
         val today = LocalDate.now()
         val cachedNoteCount = noteDao.count()
         if (cachedNoteCount == 0) {
-            anyNetwork = anyNetwork or bootstrapAllNotes(api, noteDao, config)
+            anyNetwork = anyNetwork or bootstrapAllNotes(api, noteDao, config, budget)
         }
 
         // Always also refresh the 14-day sliding window so recent edits from
@@ -61,6 +66,7 @@ class PullWorker(
             val path = config.filePathFor(date)
             val local = noteDao.get(path)
             if (local?.dirty == true) continue
+            if (!budget.consume()) { anyNetwork = true; break }
             when (val res = api.getFile(config, path)) {
                 is MemoResult.Ok -> {
                     if (local != null && local.githubSha == res.value.sha) continue
@@ -91,29 +97,25 @@ class PullWorker(
         }
 
         // --- events --------------------------------------------------------
-        when (val res = api.listDir(config, "events")) {
+        // listDir itself is an HTTP call — 1 budget unit.
+        if (!budget.consume()) {
+            anyNetwork = true
+        } else when (val res = api.listDir(config, "events")) {
             is MemoResult.Ok -> {
                 val remote = res.value.filter { it.type == "file" && it.name.endsWith(".ics") }
                 val remotePaths = remote.map { it.path }.toSet()
-                // Fixes #10: budget the per-cycle work. Anything left over gets
-                // picked up on the next scheduled run (periodic 30 min) or the
-                // next explicit refresh, instead of draining the user's rate limit.
-                var pullsThisCycle = 0
                 // Pull new / changed. Fixes #2: locate by filePath (unique index),
                 // NOT by deriving uid from filename — a remote rename used to produce
                 // a duplicate row.
                 for (item in remote) {
-                    if (pullsThisCycle >= MAX_PULLS_PER_CYCLE) {
-                        // Stop fetching; the loop below still reconciles deletions,
-                        // and the leftovers come in on the next cycle. Mark as
-                        // "wants-retry" so WorkManager re-runs us sooner.
-                        anyNetwork = true
-                        break
-                    }
                     val localByPath = eventDao.getByPath(item.path)
                     if (localByPath?.dirty == true) continue
                     if (localByPath != null && localByPath.githubSha == item.sha) continue
-                    pullsThisCycle++
+                    // Fixes #53 (P6.1): exhausted-check + consume merged to a
+                    // single atomic-in-intent call so the check-then-act pair
+                    // can't drift. Stop fetching; the deletion loop below still
+                    // reconciles, and leftovers pick up next cycle.
+                    if (!budget.consume()) { anyNetwork = true; break }
                     when (val fileRes = api.getFile(config, item.path)) {
                         is MemoResult.Ok -> {
                             val text = runCatching { fileRes.value.decodedContent }.getOrNull() ?: continue
@@ -168,22 +170,18 @@ class PullWorker(
         // `filePath` is UNIQUE, so we locate existing rows by it just like
         // the events arm. Local-only fields (isPinned) are preserved across
         // pulls — mirrors the S1 fix we applied to event reminders.
-        when (val res = api.listDir(config, "notes")) {
+        if (!budget.consume()) {
+            anyNetwork = true
+        } else when (val res = api.listDir(config, "notes")) {
             is MemoResult.Ok -> {
                 val remote = res.value.filter { it.type == "file" && it.name.endsWith(".md") }
                 val remotePaths = remote.map { it.path }.toSet()
-                var pullsThisCycle = 0
                 for (item in remote) {
-                    if (pullsThisCycle >= MAX_PULLS_PER_CYCLE) {
-                        // Respect the same per-cycle budget that protects us
-                        // against rate-limit exhaustion on the events arm.
-                        anyNetwork = true
-                        break
-                    }
                     val localByPath = singleNoteDao.getByPath(item.path)
                     if (localByPath?.dirty == true) continue
                     if (localByPath != null && localByPath.githubSha == item.sha) continue
-                    pullsThisCycle++
+                    // Fixes #53 (P6.1): merged exhausted+consume check.
+                    if (!budget.consume()) { anyNetwork = true; break }
                     when (val fileRes = api.getFile(config, item.path)) {
                         is MemoResult.Ok -> {
                             val text = runCatching { fileRes.value.decodedContent }
@@ -267,13 +265,19 @@ class PullWorker(
     /**
      * Walk the root directory once, fetching every file whose name matches
      * `YYYY-MM-DD.md`. Returns `true` if a network error deserves a retry.
+     *
+     * P6.1 第 6 项：shared [budget] across all pull segments replaces the
+     * pre-P6.1 per-segment `MAX_BOOTSTRAP_PULLS_PER_CYCLE` constant.
      */
     private suspend fun bootstrapAllNotes(
         api: dev.aria.memo.data.GitHubApi,
         dao: dev.aria.memo.data.local.NoteDao,
         config: dev.aria.memo.data.AppConfig,
+        budget: PullBudget,
     ): Boolean {
         var anyNetwork = false
+        // The listDir itself costs 1 budget unit.
+        if (!budget.consume()) return true
         val root = when (val res = api.listDir(config, "")) {
             is MemoResult.Ok -> res.value
             is MemoResult.Err -> {
@@ -282,18 +286,10 @@ class PullWorker(
             }
         }
         val noteFiles = root.filter { it.type == "file" && NOTE_FILENAME.matches(it.name) }
-        // Fixes #19: cap bootstrap GETs per cycle. A repo with hundreds of
-        // historical notes would otherwise burn the user's GitHub rate budget
-        // in a single cold-start. Anything left over is picked up on the next
-        // scheduled run because we signal anyNetwork=true.
-        var pullsThisCycle = 0
         for (item in noteFiles) {
-            if (pullsThisCycle >= MAX_BOOTSTRAP_PULLS_PER_CYCLE) {
-                anyNetwork = true
-                break
-            }
             val date = runCatching { LocalDate.parse(item.name.removeSuffix(".md")) }.getOrNull() ?: continue
-            pullsThisCycle++
+            // Fixes #53 (P6.1): merged exhausted+consume check.
+            if (!budget.consume()) { anyNetwork = true; break }
             when (val res = api.getFile(config, item.path)) {
                 is MemoResult.Ok -> {
                     val text = runCatching { res.value.decodedContent }.getOrNull() ?: continue
@@ -321,10 +317,6 @@ class PullWorker(
 
     private companion object {
         const val WINDOW_DAYS = 14
-        /** Fixes #10: cap per-cycle event GETs to stay under GitHub rate limits. */
-        const val MAX_PULLS_PER_CYCLE = 50
-        /** Fixes #19: cap bootstrap note GETs per cycle for the same reason. */
-        const val MAX_BOOTSTRAP_PULLS_PER_CYCLE = 50
         val NOTE_FILENAME = Regex("""\d{4}-\d{2}-\d{2}\.md""")
         /**
          * P5 obsidian-style single note filename:

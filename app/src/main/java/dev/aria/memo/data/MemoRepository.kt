@@ -3,6 +3,7 @@ package dev.aria.memo.data
 import android.content.Context
 import dev.aria.memo.data.local.NoteDao
 import dev.aria.memo.data.local.NoteFileEntity
+import dev.aria.memo.data.notes.FrontMatterCodec
 import dev.aria.memo.data.sync.PathLocker
 import dev.aria.memo.data.sync.SyncScheduler
 import kotlinx.coroutines.flow.Flow
@@ -169,67 +170,12 @@ class MemoRepository(
 
         /**
          * Strip a leading `---\n...\n---\n` YAML block (if any) from [text] and
-         * return what remains. Tolerant of CRLF and trailing blank lines after
-         * the closing fence.
-         *
-         * IMPORTANT: this only strips *real* front matter — i.e. every non-blank
-         * line between the two `---` fences must be a `key: value` entry (simple
-         * YAML subset) **and** the block must carry a `pinned:` key. Anything
-         * else (e.g. a user-authored markdown horizontal rule followed later by
-         * another `---`) is left untouched to avoid eating content.
+         * return what remains. Delegates to [FrontMatterCodec.strip] — the codec
+         * enforces the "only eat pin blocks with strict bool value" semantic so
+         * user-authored YAML is preserved.
          */
-        internal fun stripFrontMatter(text: String): String {
-            val normalized = text.replace("\r\n", "\n")
-            if (!normalized.startsWith("---\n") && normalized != "---") return text
-            // Look for the closing `---` on its own line after the opener.
-            val afterOpen = normalized.indexOf('\n') + 1
-            val closeMarker = normalized.indexOf("\n---", afterOpen)
-            if (closeMarker < 0) return text
-            val block = normalized.substring(afterOpen, closeMarker)
-            if (!looksLikePinFrontMatter(block)) return text
-            // Skip past `\n---` and any blank line(s) that sit between the
-            // fence and the body. [applyPinFrontMatter] inserts exactly one,
-            // but be tolerant of zero or more for hand-edited files.
-            var cut = closeMarker + "\n---".length
-            while (cut < normalized.length && normalized[cut] == '\n') cut++
-            return normalized.substring(cut)
-        }
-
-        /**
-         * Recognise our own YAML block versus a stray `---` HR the user typed.
-         * Requires every non-blank line to look like `key: value` AND at least
-         * one line to carry the `pinned` key — otherwise the block is treated
-         * as user content and left alone.
-         */
-        private fun looksLikePinFrontMatter(block: String): Boolean {
-            if (block.isEmpty()) return false
-            var sawPinned = false
-            for (raw in block.split('\n')) {
-                val line = raw.trim()
-                if (line.isEmpty()) continue
-                val idx = line.indexOf(':')
-                if (idx <= 0) return false
-                val key = line.substring(0, idx).trim()
-                // A valid simple-YAML key: letters, digits, underscore, hyphen.
-                if (key.isEmpty() || !key.all { it.isLetterOrDigit() || it == '_' || it == '-' }) {
-                    return false
-                }
-                if (key == "pinned") {
-                    // Severe fix: only treat this as OUR front matter when the
-                    // pinned value is a boolean literal. Previously accepting
-                    // `pinned: yes` / `pinned: 1` could strip user-authored
-                    // YAML blocks that happen to contain a "pinned" key with a
-                    // non-bool value, silently deleting the user's other keys.
-                    val value = line.substring(idx + 1).trim().trim('"', '\'')
-                    if (!value.equals("true", ignoreCase = true) &&
-                        !value.equals("false", ignoreCase = true)) {
-                        return false
-                    }
-                    sawPinned = true
-                }
-            }
-            return sawPinned
-        }
+        internal fun stripFrontMatter(text: String): String =
+            FrontMatterCodec.strip(text)
 
         /**
          * Return true when [text] currently carries a front matter block with
@@ -255,19 +201,10 @@ class MemoRepository(
 
         /**
          * Rewrite [content] so it has exactly the right front matter for
-         * [pinned]. Pinning prepends a 3-line YAML block; unpinning strips any
-         * existing block. Content that already matches is returned untouched.
+         * [pinned]. Delegates to [FrontMatterCodec.applyPin].
          */
-        internal fun applyPinFrontMatter(content: String, pinned: Boolean): String {
-            val stripped = stripFrontMatter(content)
-            return if (pinned) {
-                // Ensure exactly one blank line between front matter and body.
-                val body = stripped.trimStart('\n')
-                "---\npinned: true\n---\n\n${body}".trimEnd('\n') + "\n"
-            } else {
-                stripped
-            }
-        }
+        internal fun applyPinFrontMatter(content: String, pinned: Boolean): String =
+            FrontMatterCodec.applyPin(content, pinned)
 
         fun parseEntries(text: String, date: LocalDate): List<MemoEntry> {
             val body = stripFrontMatter(text)

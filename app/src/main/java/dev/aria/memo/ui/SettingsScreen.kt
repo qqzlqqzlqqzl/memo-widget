@@ -18,13 +18,12 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,7 +33,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +43,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -56,8 +57,10 @@ import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.oauth.GitHubOAuthClient
 import dev.aria.memo.notify.NotificationPermissionBus
 import dev.aria.memo.notify.QuickAddNotificationManager
+import dev.aria.memo.ui.components.MemoCard
 import dev.aria.memo.ui.oauth.OAuthSignInDialog
 import dev.aria.memo.ui.oauth.OAuthSignInViewModel
+import dev.aria.memo.ui.theme.MemoSpacing
 import dev.aria.memo.ui.theme.MemoTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -144,10 +147,15 @@ fun SettingsScreen(
         }
     }
 
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(title = { Text("Memo Widget · 设置") })
+            LargeTopAppBar(
+                title = { Text("Memo Widget · 设置") },
+                scrollBehavior = scrollBehavior,
+            )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
@@ -185,7 +193,7 @@ fun SettingsScreen(
             onDismissRequest = { showClientIdDialog = false },
             title = { Text("填入 GitHub OAuth Client ID") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
                     Text(
                         text = "先去 GitHub Settings → Developer settings → OAuth Apps 注册一个应用，" +
                             "把它的 Client ID 填到这里（它是公开标识，不是 Secret，可以明文保存）。",
@@ -271,10 +279,10 @@ private fun SettingsContent(
     Column(
         modifier = Modifier
             .padding(innerPadding)
-            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .padding(horizontal = MemoSpacing.xl, vertical = MemoSpacing.md)
             .verticalScroll(rememberScrollState())
             .fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(MemoSpacing.md),
     ) {
         if (notificationDenied) {
             NotificationPermissionCard(onOpenSettings = onOpenNotificationSettings)
@@ -337,7 +345,7 @@ private fun SettingsContent(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(MemoSpacing.xs))
 
         Button(
             onClick = onSave,
@@ -361,7 +369,7 @@ private fun SettingsContent(
         ) {
             Icon(Icons.Filled.Edit, contentDescription = null)
             Spacer(Modifier.height(0.dp))
-            Text("  立即写一条", modifier = Modifier.padding(start = 4.dp))
+            Text("  立即写一条", modifier = Modifier.padding(start = MemoSpacing.xs))
         }
 
         HelpEntryCard(onOpenHelp = onOpenHelp)
@@ -372,28 +380,23 @@ private fun SettingsContent(
 private fun HelpEntryCard(onOpenHelp: () -> Unit) {
     // User feedback called out missing in-app docs — this card opens the bundled
     // user_guide.md in HelpScreen without leaving the app.
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-        ),
+    MemoCard(
+        accentColor = MaterialTheme.colorScheme.tertiary,
         onClick = onOpenHelp,
-        modifier = Modifier.fillMaxWidth(),
     ) {
         androidx.compose.foundation.layout.Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.MenuBook,
                 contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
             )
             Text(
-                text = "  📖 查看使用说明书",
+                text = "查看使用说明书",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(start = 8.dp),
+                modifier = Modifier.padding(start = MemoSpacing.sm),
             )
         }
     }
@@ -402,31 +405,21 @@ private fun HelpEntryCard(onOpenHelp: () -> Unit) {
 @Composable
 private fun StatusCard(state: SettingsUiState) {
     val configured = state.isConfigured
-    val colors = if (configured) {
-        CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        )
+    val accent = if (configured) {
+        MaterialTheme.colorScheme.primary
     } else {
-        CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        )
+        MaterialTheme.colorScheme.error
     }
-    Card(colors = colors, modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = if (configured) "当前配置已就绪 ✓" else "还缺：${state.missingFields.joinToString("、")}",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = "备注会追加到 ${state.owner.ifBlank { "<owner>" }}/${state.repo.ifBlank { "<repo>" }} 的 ${state.branch.ifBlank { "main" }} 分支",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
+    MemoCard(accentColor = accent) {
+        Text(
+            text = if (configured) "当前配置已就绪 ✓" else "还缺：${state.missingFields.joinToString("、")}",
+            style = MaterialTheme.typography.titleMedium,
+            color = accent,
+        )
+        Text(
+            text = "备注会追加到 ${state.owner.ifBlank { "<owner>" }}/${state.repo.ifBlank { "<repo>" }} 的 ${state.branch.ifBlank { "main" }} 分支",
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 
@@ -435,21 +428,13 @@ private fun QuickAddToggleCard(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,
 ) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    MemoCard {
         androidx.compose.foundation.layout.Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(modifier = Modifier.padding(end = 12.dp)) {
+            Column(modifier = Modifier.padding(end = MemoSpacing.md).weight(1f)) {
                 Text(
                     text = "常驻通知栏快速入口",
                     style = MaterialTheme.typography.titleMedium,
@@ -457,6 +442,7 @@ private fun QuickAddToggleCard(
                 Text(
                     text = "在通知栏常驻一条低优先级通知，点一下直接打开写备忘。",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Switch(checked = enabled, onCheckedChange = onToggle)
@@ -467,17 +453,10 @@ private fun QuickAddToggleCard(
 @Composable
 private fun NotificationPermissionCard(onOpenSettings: () -> Unit) {
     // Fixes #24: user has denied POST_NOTIFICATIONS — reminders won't fire.
-    // Use a warm amber palette so it reads as "heads up", not "error".
-    val amber = androidx.compose.ui.graphics.Color(0xFFFFF4CC)
-    val onAmber = androidx.compose.ui.graphics.Color(0xFF5A4A00)
-    Card(
-        colors = CardDefaults.cardColors(containerColor = amber, contentColor = onAmber),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+    // Warm amber accent so it reads as "heads up", not "error".
+    val amberAccent = Color(0xFFB8860B)
+    MemoCard(accentColor = amberAccent) {
+        Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
             Text(
                 text = "通知权限未开启，日程提醒不会响",
                 style = MaterialTheme.typography.titleMedium,
@@ -485,19 +464,21 @@ private fun NotificationPermissionCard(onOpenSettings: () -> Unit) {
             Text(
                 text = "在系统设置里允许通知后，已排期的提醒就能按时响起。",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Button(onClick = onOpenSettings) { Text("去系统设置") }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Preview(showBackground = true, name = "Settings · empty")
 @Composable
 private fun SettingsContentEmptyPreview() {
     MemoTheme {
         Scaffold(
             topBar = {
-                androidx.compose.material3.TopAppBar(title = { Text("Memo Widget · 设置") })
+                LargeTopAppBar(title = { Text("Memo Widget · 设置") })
             },
         ) { inner ->
             SettingsContent(
@@ -516,13 +497,14 @@ private fun SettingsContentEmptyPreview() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Preview(showBackground = true, name = "Settings · filled")
 @Composable
 private fun SettingsContentFilledPreview() {
     MemoTheme {
         Scaffold(
             topBar = {
-                androidx.compose.material3.TopAppBar(title = { Text("Memo Widget · 设置") })
+                LargeTopAppBar(title = { Text("Memo Widget · 设置") })
             },
         ) { inner ->
             SettingsContent(

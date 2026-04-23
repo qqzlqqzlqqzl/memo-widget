@@ -1,7 +1,6 @@
 package dev.aria.memo.ui.calendar
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,21 +21,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,6 +53,11 @@ import com.kizitonwose.calendar.core.DayPosition
 import com.kizitonwose.calendar.core.daysOfWeek
 import dev.aria.memo.data.ics.EventOccurrence
 import dev.aria.memo.data.local.EventEntity
+import dev.aria.memo.ui.components.MemoCard
+import dev.aria.memo.ui.components.MemoEmptyState
+import dev.aria.memo.ui.components.MemoSectionHeader
+import dev.aria.memo.ui.components.ScrollAwareFab
+import dev.aria.memo.ui.theme.MemoSpacing
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.Instant
@@ -97,43 +100,66 @@ fun CalendarScreen(
     // chevron taps don't stack month-scroll animations on top of each other.
     var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
+    // enterAlwaysScrollBehavior lets the LargeTopAppBar collapse on scroll, so
+    // the day sheet gets more vertical room as the user reads through events.
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
+    // Fixes #45 (P6.1): tie ScrollAwareFab's expanded state to the top-bar
+    // collapse fraction. When the user scrolls and the bar starts to collapse,
+    // the FAB follows by collapsing to icon-only, giving more room to the day
+    // sheet. Threshold 0.5f picks the midpoint so the transition feels paired.
+    val fabExpanded by remember {
+        derivedStateOf { scrollBehavior.state.collapsedFraction < 0.5f }
+    }
+
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { Text("日历") },
+            LargeTopAppBar(
+                title = {
+                    Text(
+                        text = calendarState.firstVisibleMonth.yearMonth
+                            .format(DateTimeFormatter.ofPattern("yyyy 年 M 月")),
+                    )
+                },
                 actions = {
                     IconButton(onClick = {
                         scrollJob?.cancel()
                         scrollJob = scope.launch {
-                            calendarState.animateScrollToMonth(calendarState.firstVisibleMonth.yearMonth.minusMonths(1))
+                            calendarState.animateScrollToMonth(
+                                calendarState.firstVisibleMonth.yearMonth.minusMonths(1),
+                            )
                         }
                     }) { Icon(Icons.Filled.ChevronLeft, contentDescription = "上一月") }
-                    Text(
-                        text = calendarState.firstVisibleMonth.yearMonth.format(DateTimeFormatter.ofPattern("yyyy 年 M 月")),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
                     IconButton(onClick = {
                         scrollJob?.cancel()
                         scrollJob = scope.launch {
-                            calendarState.animateScrollToMonth(calendarState.firstVisibleMonth.yearMonth.plusMonths(1))
+                            calendarState.animateScrollToMonth(
+                                calendarState.firstVisibleMonth.yearMonth.plusMonths(1),
+                            )
                         }
                     }) { Icon(Icons.Filled.ChevronRight, contentDescription = "下一月") }
                 },
+                scrollBehavior = scrollBehavior,
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            ScrollAwareFab(
+                expanded = fabExpanded,
                 onClick = {
                     dialogEpoch += 1
                     showAddDialog = true
                 },
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("加日程") },
+                icon = Icons.Filled.Add,
+                text = "加日程",
             )
         },
     ) { inner ->
-        Column(Modifier.padding(inner).fillMaxSize()) {
+        Column(
+            Modifier
+                .padding(inner)
+                .fillMaxSize(),
+        ) {
             WeekHeader(daysOfWeek)
             HorizontalCalendar(
                 state = calendarState,
@@ -142,6 +168,7 @@ fun CalendarScreen(
                         day = day,
                         selected = day.date == state.selected,
                         marked = day.date in state.markedDates,
+                        isToday = day.date == LocalDate.now(),
                         onClick = { viewModel.selectDate(day.date) },
                     )
                 },
@@ -151,6 +178,7 @@ fun CalendarScreen(
                 date = state.selected,
                 summary = state.daySummary,
                 onEventClick = onEventClick,
+                padding = PaddingValues(horizontal = MemoSpacing.lg),
             )
         }
     }
@@ -185,17 +213,18 @@ fun CalendarScreen(
 
 @Composable
 private fun WeekHeader(daysOfWeek: List<DayOfWeek>) {
-    Row(Modifier.fillMaxWidth()) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = MemoSpacing.xs)) {
         daysOfWeek.forEach { d ->
             Text(
                 text = d.getDisplayName(TextStyle.SHORT, Locale.SIMPLIFIED_CHINESE),
                 modifier = Modifier.weight(1f),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(MemoSpacing.xs))
 }
 
 @Composable
@@ -203,20 +232,29 @@ private fun DayCell(
     day: CalendarDay,
     selected: Boolean,
     marked: Boolean,
+    isToday: Boolean,
     onClick: () -> Unit,
 ) {
     val inMonth = day.position == DayPosition.MonthDate
-    val bgColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+    val bgColor = when {
+        selected -> MaterialTheme.colorScheme.primary
+        isToday && inMonth -> MaterialTheme.colorScheme.primaryContainer
+        else -> Color.Transparent
+    }
     val fgColor = when {
-        selected -> MaterialTheme.colorScheme.onPrimaryContainer
+        selected -> MaterialTheme.colorScheme.onPrimary
+        isToday && inMonth -> MaterialTheme.colorScheme.onPrimaryContainer
         !inMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val markerTint = MaterialTheme.colorScheme.tertiary
     Box(
         modifier = Modifier
             .aspectRatio(1f)
-            .padding(2.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .padding(MemoSpacing.xs)
+            .clip(
+                if (isToday || selected) CircleShape else RoundedCornerShape(12.dp),
+            )
             .background(bgColor)
             .clickable(enabled = inMonth) { onClick() },
         contentAlignment = Alignment.Center,
@@ -225,7 +263,7 @@ private fun DayCell(
             Text(
                 text = day.date.dayOfMonth.toString(),
                 color = fgColor,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (selected || isToday) FontWeight.SemiBold else FontWeight.Normal,
                 style = MaterialTheme.typography.bodyMedium,
             )
             if (marked && inMonth) {
@@ -234,7 +272,7 @@ private fun DayCell(
                     modifier = Modifier
                         .size(4.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
+                        .background(if (selected) MaterialTheme.colorScheme.onPrimary else markerTint),
                 )
             }
         }
@@ -246,30 +284,42 @@ private fun DaySheet(
     date: LocalDate,
     summary: DaySummary,
     onEventClick: (EventOccurrence) -> Unit,
+    padding: PaddingValues,
 ) {
     val title = date.format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日 EEEE"))
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
     ) {
         item {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                modifier = Modifier.padding(top = MemoSpacing.md, bottom = MemoSpacing.xs),
             )
         }
         if (summary.events.isEmpty() && summary.memos.isEmpty()) {
             item {
-                Text(
-                    text = "这一天还没有记录",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 16.dp),
-                )
+                // Contain the empty state to a sensible height — the
+                // MemoEmptyState wants fillMaxSize, so we wrap it in a
+                // fixed-height box.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                ) {
+                    MemoEmptyState(
+                        icon = Icons.Outlined.EventAvailable,
+                        title = "今日无事件",
+                        subtitle = "点右下角添加新事件",
+                    )
+                }
             }
         }
         if (summary.events.isNotEmpty()) {
-            item { SectionHeader("日程") }
+            item { MemoSectionHeader(text = "日程") }
             items(summary.events.size, key = { idx ->
                 val o = summary.events[idx]
                 "e-${o.event.uid}-${o.startEpochMs}"
@@ -278,36 +328,21 @@ private fun DaySheet(
             }
         }
         if (summary.memos.isNotEmpty()) {
-            item { SectionHeader("备忘") }
+            item { MemoSectionHeader(text = "备忘") }
             items(summary.memos.size, key = { "m-${summary.memos[it].time}" }) { idx ->
                 val m = summary.memos[idx]
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(
-                            m.time.format(DateTimeFormatter.ofPattern("HH:mm")),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(m.body, style = MaterialTheme.typography.bodyMedium)
-                    }
+                MemoCard(accentColor = MaterialTheme.colorScheme.primary) {
+                    Text(
+                        m.time.format(DateTimeFormatter.ofPattern("HH:mm")),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(m.body, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
         item { Spacer(Modifier.height(88.dp)) } // space for FAB
     }
-}
-
-@Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 8.dp),
-    )
 }
 
 @Composable
@@ -317,31 +352,25 @@ private fun EventRow(occ: EventOccurrence, onClick: () -> Unit) {
     val end = remember(occ) { Instant.ofEpochMilli(occ.endEpochMs).atZone(zone) }
     val timeFmt = remember { DateTimeFormatter.ofPattern("HH:mm") }
     val recurringMark = if (!occ.event.rrule.isNullOrBlank()) " 🔁" else ""
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+    MemoCard(
+        accentColor = MaterialTheme.colorScheme.tertiary,
+        onClick = onClick,
     ) {
-        Column(Modifier.padding(12.dp)) {
+        Text(
+            text = "${start.format(timeFmt)} – ${end.format(timeFmt)}$recurringMark",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.tertiary,
+        )
+        Text(
+            text = occ.event.summary,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        if (occ.event.dirty) {
             Text(
-                text = "${start.format(timeFmt)} – ${end.format(timeFmt)}$recurringMark",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                text = "待同步",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(
-                text = occ.event.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            if (occ.event.dirty) {
-                Text(
-                    text = "待同步",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
         }
     }
 }

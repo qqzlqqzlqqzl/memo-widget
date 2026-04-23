@@ -31,7 +31,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import dev.aria.memo.EditActivity
 import dev.aria.memo.MainActivity
-import dev.aria.memo.data.DatedMemoEntry
 import java.time.format.DateTimeFormatter
 
 /**
@@ -41,27 +40,24 @@ import java.time.format.DateTimeFormatter
  *  ┌──────────────────────────────┐
  *  │  Memo          [  + New ]    │   ← title row + add button (launches Edit)
  *  ├──────────────────────────────┤
- *  │  04/21 14:30  今天学了…      │   ← recent entry 1 (tap → Edit)
- *  │  04/20 15:12  买菜 / 跑步    │   ← yesterday's row — shows date too
- *  │  04/20 18:05  凉面           │
+ *  │  04/21 14:30  早晨想法        │   ← single-note row (tap → Edit with uid)
+ *  │  04/20 15:12  买菜 / 跑步     │   ← legacy cross-day entry
+ *  │  04/20 18:05  凉面            │
  *  └──────────────────────────────┘
  *
- * Entries are cross-day (see [dev.aria.memo.data.MemoRepository.recentEntriesAcrossDays]):
- * the newest [entries.size] entries from any cached day-file, newest first.
- * Each row prefixes `MM/DD HH:mm` so mixed-day lists are unambiguous.
+ * Rows are a union of the new single-note feed and the legacy cross-day feed
+ * (single-notes win when both have content). Each carries a `MM/DD HH:mm`
+ * prefix so mixed-day lists are unambiguous.
  *
  * State branches (AGENT_SPEC.md §4.5):
  *  1. !isConfigured  → prompt to open the app and configure PAT (launches MainActivity).
- *  2. entries empty  → "还没有备忘，点 + 开始" (tapping + still launches Edit).
- *  3. entries shown  → up to 3 rows; each row launches EditActivity on tap.
- *
- * Theming: [GlanceTheme] auto-mirrors the app's Material 3 theme and follows
- * system dark-mode on API 31+. No PAT or secret is ever rendered here
- * (AGENT_SPEC.md §7 rule 5).
+ *  2. rows empty     → "还没有备忘，点 + 开始" (tapping + still launches Edit).
+ *  3. rows shown     → up to 3 rows; single-note rows deep-link by uid, legacy
+ *                      rows open EditActivity with no extras.
  */
 @Composable
 fun MemoWidgetContent(
-    entries: List<DatedMemoEntry>,
+    rows: List<MemoWidgetRow>,
     isConfigured: Boolean,
     modifier: GlanceModifier = GlanceModifier,
 ) {
@@ -73,8 +69,8 @@ fun MemoWidgetContent(
         ) {
             when {
                 !isConfigured -> UnconfiguredBody()
-                entries.isEmpty() -> EmptyBody()
-                else -> EntriesBody(entries)
+                rows.isEmpty() -> EmptyBody()
+                else -> EntriesBody(rows)
             }
         }
     }
@@ -137,7 +133,7 @@ private fun UnconfiguredBody() {
 }
 
 /**
- * Empty state: configured, but Room has no entries from any day yet.
+ * Empty state: configured, but Room has no entries from any source yet.
  * Tapping anywhere jumps into [EditActivity].
  */
 @Composable
@@ -162,24 +158,25 @@ private fun EmptyBody() {
  * on resize even though the canonical 2x2 layout shows only 3 rows.
  */
 @Composable
-private fun EntriesBody(entries: List<DatedMemoEntry>) {
+private fun EntriesBody(rows: List<MemoWidgetRow>) {
     LazyColumn(
         modifier = GlanceModifier
             .fillMaxSize()
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
         items(
-            items = entries,
-            // Mix date epoch-day, minute-of-day, and body hash so entries from
-            // different days AND same-minute entries within one day all get
-            // distinct Glance LazyColumn item ids.
-            itemId = { entry ->
-                entry.date.toEpochDay() * 1_000_000L +
-                    entry.time.toSecondOfDay().toLong() * 31L +
-                    entry.body.hashCode().toLong()
+            items = rows,
+            // Mix uid (when present) or a synthetic date+time+hash id so rows
+            // from different sources never collide.
+            itemId = { row ->
+                val uidHash = (row.noteUid?.hashCode() ?: 0).toLong()
+                row.date.toEpochDay() * 1_000_000L +
+                    row.time.toSecondOfDay().toLong() * 31L +
+                    row.label.hashCode().toLong() +
+                    uidHash
             },
-        ) { entry ->
-            EntryRow(entry)
+        ) { row ->
+            EntryRow(row)
         }
     }
 }
@@ -187,25 +184,32 @@ private fun EntriesBody(entries: List<DatedMemoEntry>) {
 private val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
- * Single entry row: `MM/dd HH:mm  body-preview`. The date prefix lets users
- * tell today's rows apart from yesterday's at a glance when the widget shows
- * cross-day content. Tapping opens [EditActivity].
+ * Single entry row: `MM/dd HH:mm  <label>`. The date prefix lets users tell
+ * today's rows apart from yesterday's at a glance when the widget shows
+ * cross-day content. Tapping opens [EditActivity] — single-note rows deep-link
+ * with their uid so the editor lands on the right file.
  */
 @Composable
-private fun EntryRow(entry: DatedMemoEntry) {
+private fun EntryRow(row: MemoWidgetRow) {
     val context = LocalContext.current
     val dateTimeLabel = "%02d/%02d %s".format(
-        entry.date.monthValue,
-        entry.date.dayOfMonth,
-        entry.time.format(TIME_FMT),
+        row.date.monthValue,
+        row.date.dayOfMonth,
+        row.time.format(TIME_FMT),
     )
+    val intent = Intent(context, EditActivity::class.java).apply {
+        val uid = row.noteUid
+        if (!uid.isNullOrBlank()) {
+            putExtra(EditActivity.EXTRA_NOTE_UID, uid)
+        }
+    }
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
             .wrapContentHeight()
             .padding(horizontal = 6.dp, vertical = 6.dp)
             .cornerRadius(8.dp)
-            .clickable(actionStartActivity(Intent(context, EditActivity::class.java))),
+            .clickable(actionStartActivity(intent)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -218,7 +222,7 @@ private fun EntryRow(entry: DatedMemoEntry) {
         )
         Spacer(modifier = GlanceModifier.width(6.dp))
         Text(
-            text = entry.body.firstLinePreview(),
+            text = row.label.firstLinePreview(),
             style = TextStyle(color = GlanceTheme.colors.onBackground),
             maxLines = 1,
             modifier = GlanceModifier.fillMaxWidth(),
@@ -232,11 +236,6 @@ private fun EntryRow(entry: DatedMemoEntry) {
  * Normalizes common markdown list markers ("- ", "* ") and folds up to the
  * first three non-empty lines, separated by " / ". Designed for glance-sized
  * text where body content rarely fits full lines anyway.
- *
- * Examples:
- *  - `"买菜\n跑步 30min"`          → `"买菜 / 跑步 30min"`
- *  - `"- 买菜\n- 跑步 30min"`      → `"买菜 / 跑步 30min"`
- *  - `"今天学了 Glance 的 API"`    → `"今天学了 Glance 的 API"`
  */
 private fun String.firstLinePreview(): String {
     val pieces = this.lineSequence()

@@ -3,7 +3,9 @@ package dev.aria.memo.data
 import android.content.Context
 import dev.aria.memo.data.local.SingleNoteDao
 import dev.aria.memo.data.local.SingleNoteEntity
+import dev.aria.memo.data.notes.FrontMatterCodec
 import dev.aria.memo.data.notes.NoteSlugger
+import dev.aria.memo.data.sync.PathLocker
 import dev.aria.memo.data.sync.SyncScheduler
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
@@ -53,15 +55,21 @@ class SingleNoteRepository(
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "not configured")
         }
+        // Build entity first so we know the filePath — needed to scope the lock.
         val entity = buildEntityForCreate(
             body = body,
             now = now,
             uid = UUID.randomUUID().toString(),
             nowMs = System.currentTimeMillis(),
         )
-        dao.upsert(entity)
-        SyncScheduler.enqueuePush(appContext)
-        return MemoResult.Ok(entity)
+        // Fixes #40 (P6.1): serialise the upsert against any in-flight
+        // PushWorker on the same filePath. Mirrors MemoRepository.appendToday
+        // which put the same guard in after issue #6.
+        return PathLocker.withLock(entity.filePath) {
+            dao.upsert(entity)
+            SyncScheduler.enqueuePush(appContext)
+            MemoResult.Ok(entity)
+        }
     }
 
     /**
@@ -73,43 +81,69 @@ class SingleNoteRepository(
     suspend fun update(uid: String, body: String): MemoResult<SingleNoteEntity> {
         val existing = dao.get(uid)
             ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
-        val updated = existing.copy(
-            body = body,
-            title = extractTitle(body),
-            localUpdatedAt = System.currentTimeMillis(),
-            dirty = true,
-        )
-        dao.upsert(updated)
-        SyncScheduler.enqueuePush(appContext)
-        return MemoResult.Ok(updated)
+        // Fixes #40 (P6.1): same PathLocker guard as create/delete.
+        return PathLocker.withLock(existing.filePath) {
+            val updated = existing.copy(
+                body = body,
+                title = extractTitle(body),
+                localUpdatedAt = System.currentTimeMillis(),
+                dirty = true,
+            )
+            dao.upsert(updated)
+            SyncScheduler.enqueuePush(appContext)
+            MemoResult.Ok(updated)
+        }
     }
 
     /** Soft-delete so the push worker can drive a remote DELETE. */
     suspend fun delete(uid: String): MemoResult<Unit> {
         val existing = dao.get(uid)
             ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
-        dao.tombstone(existing.uid, System.currentTimeMillis())
-        SyncScheduler.enqueuePush(appContext)
-        return MemoResult.Ok(Unit)
+        // Fixes #40 (P6.1).
+        return PathLocker.withLock(existing.filePath) {
+            dao.tombstone(existing.uid, System.currentTimeMillis())
+            SyncScheduler.enqueuePush(appContext)
+            MemoResult.Ok(Unit)
+        }
     }
 
     /**
      * Toggle the pin flag. Rewrites the body to carry `pinned: true` front
      * matter so the flag round-trips through GitHub (mirroring the day-file
      * pin implementation). `pinned: false` strips any existing block.
+     *
+     * Fixes #47 (P6.1): calls [FrontMatterCodec.applyPin] directly rather than
+     * the legacy [MemoRepository.applyPinFrontMatter] shim.
      */
     suspend fun togglePin(uid: String, pinned: Boolean): MemoResult<SingleNoteEntity> {
         val existing = dao.get(uid)
             ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
-        val newBody = MemoRepository.applyPinFrontMatter(existing.body, pinned)
-        dao.togglePin(
-            uid = existing.uid,
-            pinned = pinned,
-            body = newBody,
-            updatedAt = System.currentTimeMillis(),
-        )
-        SyncScheduler.enqueuePush(appContext)
-        return MemoResult.Ok(existing.copy(isPinned = pinned, body = newBody))
+        // Fixes #40 (P6.1).
+        return PathLocker.withLock(existing.filePath) {
+            val newBody = FrontMatterCodec.applyPin(existing.body, pinned)
+            dao.togglePin(
+                uid = existing.uid,
+                pinned = pinned,
+                body = newBody,
+                updatedAt = System.currentTimeMillis(),
+            )
+            SyncScheduler.enqueuePush(appContext)
+            MemoResult.Ok(existing.copy(isPinned = pinned, body = newBody))
+        }
+    }
+
+    /**
+     * Fallback for [NoteListViewModel.togglePin] when the UI's cached items
+     * haven't hydrated yet (rare — requires a pin tap within ~100ms of cold
+     * start). Looks up uid by path via the DAO, then delegates. Returns
+     * NOT_FOUND when neither Room nor the UI cache has the row.
+     *
+     * Fixes #46 (P6.1).
+     */
+    suspend fun togglePinByPath(path: String, pinned: Boolean): MemoResult<SingleNoteEntity> {
+        val existing = dao.getByPath(path)
+            ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found at path: $path")
+        return togglePin(existing.uid, pinned)
     }
 
     // --- helpers -----------------------------------------------------------

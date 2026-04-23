@@ -8,6 +8,8 @@ import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoRepository
 import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.SingleNoteRepository
+import dev.aria.memo.data.local.SingleNoteEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,24 +27,100 @@ sealed class SaveState {
 }
 
 /**
- * Functional-style dependencies extracted from [MemoRepository]. Lets tests
- * inject fake implementations without constructing a real Android [Context] /
- * DataStore / Room stack — the only lever the ViewModel needs is a suspend
- * function that appends today's memo, plus one that toggles a checklist line.
+ * Functional-style dependencies extracted from [MemoRepository] +
+ * [SingleNoteRepository]. Lets tests inject fakes without constructing a real
+ * Android [android.content.Context] / DataStore / Room stack.
+ *
+ *  - [appendToday]: legacy day-file append (kept for backwards compatibility;
+ *    never invoked by the production save path anymore, but the function-type
+ *    is retained so existing tests that construct [EditViewModel] directly can
+ *    keep compiling).
+ *  - [toggleTodoLine]: in-file checkbox flip on the legacy path.
+ *  - [createSingleNote]: fresh single-note file under `notes/`.
+ *  - [updateSingleNote]: rewrite an existing single-note body.
+ *  - [loadSingleNote]: fetch the entity when entering edit mode.
  */
 private typealias AppendToday = suspend (String) -> MemoResult<Unit>
 private typealias ToggleTodoLine = suspend (String, Int, String, Boolean) -> MemoResult<Unit>
+private typealias CreateSingleNote = suspend (String) -> MemoResult<SingleNoteEntity>
+private typealias UpdateSingleNote = suspend (String, String) -> MemoResult<SingleNoteEntity>
+private typealias LoadSingleNote = suspend (String) -> SingleNoteEntity?
 
 class EditViewModel @VisibleForTesting internal constructor(
     private val appendToday: AppendToday,
     private val toggleTodoLine: ToggleTodoLine,
+    private val createSingleNote: CreateSingleNote,
+    private val updateSingleNote: UpdateSingleNote,
+    private val loadSingleNote: LoadSingleNote,
+    private val noteUid: String? = null,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : ViewModel() {
 
-    /** Production binding — routes to the real repository. */
-    constructor(repository: MemoRepository) : this(
+    /** Production binding — routes to the real repositories. */
+    constructor(
+        repository: MemoRepository,
+        singleNoteRepo: SingleNoteRepository,
+        noteUid: String? = null,
+    ) : this(
         appendToday = { body -> repository.appendToday(body) },
         toggleTodoLine = { p, i, raw, c -> repository.toggleTodoLine(p, i, raw, c) },
+        createSingleNote = { body -> singleNoteRepo.create(body) },
+        updateSingleNote = { uid, body -> singleNoteRepo.update(uid, body) },
+        loadSingleNote = { uid -> singleNoteRepo.get(uid) },
+        noteUid = noteUid,
+    )
+
+    /**
+     * Test-friendly constructor kept for existing suites that only stub the
+     * legacy repository hooks. Pre-P6.1 tests call this and assert against
+     * [AppendToday]; to keep those passing without duplicating every case, we
+     * fan the create-single-note path back through the injected [appendToday]
+     * so the dedup / idempotency / error-replay assertions still exercise the
+     * same fake. Real production wiring goes through the primary constructor
+     * and so hits the actual single-note repository.
+     */
+    @VisibleForTesting
+    @Deprecated(
+        message = "Fixes #54 (P6.1): legacy 3-arg adapter exists only to keep " +
+            "pre-P6.1 DoubleTapSaveTest green while the test suite migrates to " +
+            "the 4-deps primary constructor (see EditViewModelSingleNoteTest). " +
+            "Do NOT use in new tests — the `appendToday` assertion semantic " +
+            "here actually exercises the create-single-note path via a fake " +
+            "adapter. Targeted for removal in P6.2.",
+    )
+    internal constructor(
+        appendToday: AppendToday,
+        toggleTodoLine: ToggleTodoLine,
+        clock: () -> Long = { System.currentTimeMillis() },
+    ) : this(
+        appendToday = appendToday,
+        toggleTodoLine = toggleTodoLine,
+        createSingleNote = { body ->
+            // Adapt the Unit-returning legacy fake into the single-note shape
+            // so the generic save() path can consume the result uniformly.
+            when (val res = appendToday(body)) {
+                is MemoResult.Ok -> MemoResult.Ok(
+                    SingleNoteEntity(
+                        uid = "test-uid",
+                        filePath = "notes/test.md",
+                        title = "",
+                        body = body,
+                        date = java.time.LocalDate.now(),
+                        time = java.time.LocalTime.now().withNano(0).withSecond(0),
+                        isPinned = false,
+                        githubSha = null,
+                        localUpdatedAt = 0L,
+                        remoteUpdatedAt = null,
+                        dirty = true,
+                    )
+                )
+                is MemoResult.Err -> res
+            }
+        },
+        updateSingleNote = { _, _ -> MemoResult.Err(ErrorCode.UNKNOWN, "not wired in this test") },
+        loadSingleNote = { null },
+        noteUid = null,
+        clock = clock,
     )
 
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
@@ -72,14 +150,30 @@ class EditViewModel @VisibleForTesting internal constructor(
      * repeat call within [DUPLICATE_SAVE_WINDOW_MS] with the same body
      * short-circuits back into [SaveState.Success] without invoking the
      * repository a second time.
-     *
-     * Fixes the "double-tap after Success" race: EditScreen's LaunchedEffect
-     * calls `reset()` before `onSaved() → finish()` completes, leaving a tiny
-     * window in which the button is re-enabled, the editor text still matches,
-     * and a second tap would otherwise append the same `## HH:MM` block again.
      */
     private var lastCommittedBody: String? = null
     private var lastCommittedAtMs: Long = 0L
+
+    init {
+        // When an existing single-note's uid was handed in, load its body so
+        // the editor can render the saved content. Keeps initialization off the
+        // main thread; _body fires the update once the DAO call completes.
+        //
+        // Fixes #44 (P6.1): only seed _body when it's still empty. If the user
+        // managed to start typing before the async load returned, their input
+        // won out — we must not clobber it with the just-loaded saved copy.
+        if (noteUid != null) {
+            viewModelScope.launch {
+                val entity = loadSingleNote(noteUid)
+                if (entity != null) {
+                    _path.value = entity.filePath
+                    if (_body.value.isEmpty()) {
+                        _body.value = entity.body
+                    }
+                }
+            }
+        }
+    }
 
     /**
      * Prime the ViewModel with a path and an initial body. Called from
@@ -97,10 +191,11 @@ class EditViewModel @VisibleForTesting internal constructor(
      * either extra is null/blank we fall back to today's day-file path and to
      * whatever Room has cached for it (empty if no cache yet).
      *
-     * This is the only place EditActivity hits to wire the path — without it,
-     * the checklist-toggle path stays blank and every Checkbox tap is a no-op.
+     * No-op when [noteUid] is set — the [init] block already loaded the
+     * single-note content, and we must not clobber it with today's legacy path.
      */
     fun prime(extraPath: String?, extraBody: String?) {
+        if (noteUid != null) return
         viewModelScope.launch {
             val config = ServiceLocator.settingsStore.current()
             val resolvedPath = extraPath?.takeIf { it.isNotBlank() }
@@ -118,18 +213,15 @@ class EditViewModel @VisibleForTesting internal constructor(
     }
 
     /**
-     * Append `body` to today's file via the repository. Result lands in
-     * [state]; callers observe via collectAsState and react to Success/Error.
+     * Persist the current body. Routing:
+     *  - [noteUid] == null → create a fresh single-note under `notes/`.
+     *  - [noteUid] != null → rewrite the existing single-note's body.
      *
-     * Two layers of guard:
-     *  1. Concurrent double-tap: short-circuit while a Saving is already
-     *     in-flight. This is the cheap fast path.
-     *  2. Post-reset double-tap: EditScreen resets to Idle *before* finish()
-     *     completes, so step 1 alone isn't enough — a second tap in that tiny
-     *     window would append a duplicate `## HH:MM` block. If the same
-     *     trimmed body was successfully committed within
-     *     [DUPLICATE_SAVE_WINDOW_MS], we replay [SaveState.Success] without
-     *     calling the repository.
+     * The legacy `appendToday` path is retained as a suspend injector for
+     * tests but no longer called from production — every save now lands as a
+     * single-note file. Same two layers of guard as before:
+     *   1. `_state == Saving` short-circuit for concurrent double-taps.
+     *   2. `lastCommittedBody` dedup covers the post-reset tap window.
      */
     fun save(body: String) {
         if (_state.value is SaveState.Saving) return
@@ -139,10 +231,7 @@ class EditViewModel @VisibleForTesting internal constructor(
             return
         }
 
-        // Post-reset idempotency: if the same body was just accepted, surface
-        // Success again instead of hitting the repository. EditScreen's
-        // LaunchedEffect will resume the onSaved() → finish() path; the
-        // duplicate tap is swallowed without corrupting the md file.
+        // Post-reset idempotency: same body just accepted → replay Success.
         val lastBody = lastCommittedBody
         if (lastBody != null &&
             lastBody == trimmed &&
@@ -154,10 +243,19 @@ class EditViewModel @VisibleForTesting internal constructor(
 
         _state.value = SaveState.Saving
         viewModelScope.launch {
-            _state.value = when (val res = appendToday(trimmed)) {
-                is MemoResult.Ok -> {
+            val res: MemoResult<*> = if (noteUid == null) {
+                createSingleNote(trimmed)
+            } else {
+                updateSingleNote(noteUid, trimmed)
+            }
+            _state.value = when (res) {
+                is MemoResult.Ok<*> -> {
                     lastCommittedBody = trimmed
                     lastCommittedAtMs = clock()
+                    // Reflect the persisted body back so subsequent edits
+                    // start from the latest view — matches what the single-
+                    // note repo wrote (update()) or what create() produced.
+                    _body.value = trimmed
                     SaveState.Success
                 }
                 is MemoResult.Err -> SaveState.Error(res.code, humanMessage(res.code, res.message))
@@ -179,12 +277,7 @@ class EditViewModel @VisibleForTesting internal constructor(
      */
     fun toggleChecklist(lineIndex: Int, rawLine: String, newChecked: Boolean) {
         val currentPath = _path.value
-        if (currentPath.isBlank()) {
-            // No path primed — nothing to persist. Most likely the screen was
-            // opened for a fresh write (no existing file yet), in which case a
-            // checklist toggle has nothing to toggle against.
-            return
-        }
+        if (currentPath.isBlank()) return
         val currentBody = _body.value
         val lines = currentBody.split("\n").toMutableList()
         if (lineIndex !in lines.indices) return
@@ -202,9 +295,6 @@ class EditViewModel @VisibleForTesting internal constructor(
                 is MemoResult.Ok -> Unit
                 is MemoResult.Err -> when (res.code) {
                     ErrorCode.CONFLICT -> {
-                        // Room content drifted under us. Re-read the latest
-                        // body so the renderer snaps back to the truth, then
-                        // surface a gentle notice.
                         val latest = ServiceLocator.noteDao().get(currentPath)?.content.orEmpty()
                         _body.value = latest
                         _state.value = SaveState.Error(
@@ -213,9 +303,6 @@ class EditViewModel @VisibleForTesting internal constructor(
                         )
                     }
                     else -> {
-                        // Don't flip state to Error for network — the
-                        // repository already returned Ok for those and enqueued
-                        // a retry. Only surface hard failures.
                         _state.value = SaveState.Error(res.code, humanMessage(res.code, res.message))
                     }
                 }
@@ -250,14 +337,32 @@ class EditViewModel @VisibleForTesting internal constructor(
         @VisibleForTesting
         internal const val DUPLICATE_SAVE_WINDOW_MS: Long = 2_000L
 
-        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                require(modelClass.isAssignableFrom(EditViewModel::class.java)) {
-                    "Unknown ViewModel class: $modelClass"
+        /**
+         * Default factory — creates a fresh-note EditViewModel (new-note mode).
+         * Use [factoryFor] when the Activity was launched to edit an existing
+         * single-note (carries [EditActivity.EXTRA_NOTE_UID]).
+         */
+        val Factory: ViewModelProvider.Factory = factoryFor(null)
+
+        /**
+         * Build a ViewModelProvider.Factory that scopes the ViewModel to a
+         * specific [noteUid] (nullable). When uid is null the VM operates in
+         * new-note mode (save → create). When non-null the VM loads the
+         * existing single-note on init and save → update.
+         */
+        fun factoryFor(noteUid: String?): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    require(modelClass.isAssignableFrom(EditViewModel::class.java)) {
+                        "Unknown ViewModel class: $modelClass"
+                    }
+                    return EditViewModel(
+                        ServiceLocator.repository,
+                        ServiceLocator.singleNoteRepo,
+                        noteUid = noteUid,
+                    ) as T
                 }
-                return EditViewModel(ServiceLocator.repository) as T
             }
-        }
     }
 }

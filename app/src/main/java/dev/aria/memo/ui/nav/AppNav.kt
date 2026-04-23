@@ -1,6 +1,10 @@
 package dev.aria.memo.ui.nav
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -9,14 +13,12 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -80,53 +82,65 @@ fun AppNav(onOpenEditor: () -> Unit) {
             }
         },
     ) { padding ->
-        NavHost(
-            navController = nav,
-            startDestination = Tab.Notes.route,
+        // NavHost inside an AnimatedContent wrapper so tab switches crossfade
+        // briefly rather than snapping. 150 ms matches the M3 Expressive
+        // "subtle" motion duration token — long enough to read as intentional,
+        // short enough to feel snappy.
+        AnimatedContent(
+            targetState = currentRoute ?: Tab.Notes.route,
+            transitionSpec = {
+                fadeIn(tween(150)) togetherWith fadeOut(tween(150))
+            },
+            label = "tab-switch",
             modifier = Modifier.fillMaxSize(),
-        ) {
-            composable(Tab.Notes.route) {
-                val vm: NoteListViewModel = viewModel(factory = NoteListViewModel.Factory)
-                NoteListScreen(
-                    viewModel = vm,
-                    onOpenEditor = onOpenEditor,
-                    modifier = Modifier.padding(padding),
-                )
-            }
-            composable(Tab.Tags.route) {
-                val vm: TagListViewModel = viewModel(factory = TagListViewModel.Factory)
-                TagListScreen(
-                    viewModel = vm,
-                    modifier = Modifier.padding(padding),
-                )
-            }
-            composable(Tab.Calendar.route) {
-                val vm: CalendarViewModel = viewModel(factory = CalendarViewModel.Factory)
-                CalendarScreen(
-                    viewModel = vm,
-                    modifier = Modifier.padding(padding),
-                )
-            }
-            composable(Tab.Settings.route) {
-                val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
-                SettingsScreen(
-                    viewModel = vm,
-                    onOpenEditor = onOpenEditor,
-                    onOpenHelp = {
-                        // Sub-page off the settings tab, not a bottom-nav destination.
-                        // singleTop avoids stacking duplicate help screens on repeat taps.
-                        nav.navigate("help") { launchSingleTop = true }
-                    },
-                    modifier = Modifier.padding(padding),
-                )
-            }
-            composable("help") {
-                HelpScreen(
-                    onBack = { nav.popBackStack() },
-                    modifier = Modifier.padding(padding),
-                )
+        ) { _ ->
+            NavHost(
+                navController = nav,
+                startDestination = Tab.Notes.route,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                composable(Tab.Notes.route) {
+                    val vm: NoteListViewModel = viewModel(factory = NoteListViewModel.Factory)
+                    NoteListScreen(
+                        viewModel = vm,
+                        onOpenEditor = onOpenEditor,
+                        modifier = Modifier.padding(padding),
+                    )
+                }
+                composable(Tab.Tags.route) {
+                    val vm: TagListViewModel = viewModel(factory = TagListViewModel.Factory)
+                    TagListScreen(
+                        viewModel = vm,
+                        modifier = Modifier.padding(padding),
+                    )
+                }
+                composable(Tab.Calendar.route) {
+                    val vm: CalendarViewModel = viewModel(factory = CalendarViewModel.Factory)
+                    CalendarScreen(
+                        viewModel = vm,
+                        modifier = Modifier.padding(padding),
+                    )
+                }
+                composable(Tab.Settings.route) {
+                    val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
+                    SettingsScreen(
+                        viewModel = vm,
+                        onOpenEditor = onOpenEditor,
+                        onOpenHelp = {
+                            // Sub-page off the settings tab, not a bottom-nav destination.
+                            // singleTop avoids stacking duplicate help screens on repeat taps.
+                            nav.navigate("help") { launchSingleTop = true }
+                        },
+                        modifier = Modifier.padding(padding),
+                    )
+                }
+                composable("help") {
+                    HelpScreen(
+                        onBack = { nav.popBackStack() },
+                        modifier = Modifier.padding(padding),
+                    )
+                }
             }
         }
     }
 }
-
