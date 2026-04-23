@@ -7,15 +7,15 @@
 > - 📜 **P0 历史设计** → [AGENT_SPEC.md](AGENT_SPEC.md)（已过期，仅存档用途）
 > - 📄 **本文**（README.md） → 技术总览，继续往下读
 
-一个后端是 **GitHub** 的 Android 笔记 + 日程 app。写的每一条笔记、每一个日程都会自动 commit 到你自己的 GitHub 仓库，多设备之间自动同步，离线也能用。**v0.6.0-p4.1 起**，日程支持循环规则（每周 / 每月）和本地提醒。
+一个后端是 **GitHub** 的 Android 笔记 + 日程 app。写的每一条笔记、每一个日程都会自动 commit 到你自己的 GitHub 仓库，多设备之间自动同步，离线也能用。**v0.11.0-p7 起**，接入 AI 问答（任何 OpenAI-compatible endpoint：OpenAI / DeepSeek / ollama 等），可让 AI 基于你的全部笔记或当前笔记回答问题。
 
-[![release](https://img.shields.io/badge/release-v0.6.0--p4.1-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.6.0-p4.1)
+[![release](https://img.shields.io/badge/release-v0.11.0--p7-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.11.0-p7)
 [![build](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![tests](https://img.shields.io/badge/tests-24%20passed-brightgreen)]()
+[![tests](https://img.shields.io/badge/tests-220%20passed-brightgreen)]()
 [![kotlin](https://img.shields.io/badge/kotlin-2.0.10-blue)]()
 [![compose](https://img.shields.io/badge/compose-material3-blue)]()
 [![glance](https://img.shields.io/badge/glance-1.1.0-blue)]()
-[![room](https://img.shields.io/badge/room-schema%20v6-blue)]()
+[![room](https://img.shields.io/badge/room-schema%20v8-blue)]()
 
 ---
 
@@ -23,7 +23,7 @@
 
 | 功能 | 说明 |
 |---|---|
-| 📝 写笔记 | 按天分组的 Markdown 笔记，每条带时间戳 (`## HH:MM`) |
+| 📝 写笔记 | 按天分组的 Markdown 笔记（`## HH:MM`）+ P6.1 起的 Obsidian 风一笔记一文件 |
 | 📅 记日程 | 标准 iCalendar (`.ics`) 格式，Google / 苹果日历可以直接订阅 |
 | 🔁 循环日程 | `FREQ=WEEKLY` / `FREQ=MONTHLY` RRULE，日历页事件右侧显示 🔁 |
 | 🔔 本地提醒 | 事件开始前 5 / 15 / 60 分钟弹系统通知（AlarmManager） |
@@ -31,8 +31,9 @@
 | 🏠 桌面小部件 | 快速写一条 (2×2) + 今日日程清单 (4×2) |
 | ☁️ GitHub 同步 | 写完自动推送；每 30 分钟后台 Pull；PushWorker 有 SHA 冲突自愈 |
 | 📴 离线可用 | 没网也能写，有网自动 push |
-| 🔒 加密 Token | PAT 走 Android Keystore 加密存储，FLAG_SECURE 防截屏 |
+| 🔒 加密 Token | PAT + AI API Key 走 Android Keystore + EncryptedSharedPreferences 加密，FLAG_SECURE 防截屏 |
 | 🟦 同步状态条 | 笔记页顶部 `SyncBanner`：成功静默，失败红条 + 错误码，用户可关 |
+| 🤖 AI 问答 | **v0.11.0-p7 起**。Settings 填 Provider URL / API Key / Model；顶栏 🧠 图标进聊天，或长按任一笔记选"问 AI"带笔记内容提问。三段上下文切换（无 / 当前笔记 / 全部笔记）+ 多轮对话 |
 
 ---
 
