@@ -6,15 +6,20 @@
 
   updatePeriodMillis = 0: the app pushes updates after writes;
   AlarmManager-based auto-updates are unnecessary (min would be 30m anyway).
+  （P8: WidgetRefresher + 手动 🔄 按钮替代自动轮询）
 
-  resizeMode "horizontal|vertical" and target cells 2x2 keep the widget
-  usable in dense launcher grids while allowing the user to expand it.
+  P8 改动：targetCell 从 2x2 放大到 3x3 —— widget 从"3 条今日快照"变成"最近 20
+  条可滚动列表"，默认 3x3 才能同时看到足够多行（约 6~7 条），又不至于占满屏。
+  minWidth/minHeight 仍保留 110dp 下限，用户拖到 2x2 也能继续用（只是露出的
+  行更少，LazyColumn 天然滚动）。
+
+  resizeMode "horizontal|vertical" 允许用户从 2x2 拖到 4x4，看到 20 条全部。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="110dp"
     android:minHeight="110dp"
-    android:targetCellWidth="2"
-    android:targetCellHeight="2"
+    android:targetCellWidth="3"
+    android:targetCellHeight="3"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:description="@string/widget_description"

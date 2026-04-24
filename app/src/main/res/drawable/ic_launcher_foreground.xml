@@ -3,6 +3,11 @@
   Foreground for the adaptive icon: a simple "memo" glyph — a page
   with three ruled lines. Drawn inside the 72dp adaptive-icon safe
   zone (so visible in circle, squircle, and rounded-square masks).
+
+  Fix-7 #10 (UI-A report): the ruled-line fill was #1E88E5 Material
+  blue, which clashed with the app's primary green palette
+  (MemoLightPrimary #3F6B3F). Now matches app primary so the launcher
+  reads as the same product as the in-app chrome.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -15,14 +20,14 @@
         android:fillColor="#FFFFFFFF"
         android:pathData="M36,30 h30 a6,6 0 0 1 6,6 v42 a6,6 0 0 1 -6,6 h-30 a6,6 0 0 1 -6,-6 v-42 a6,6 0 0 1 6,-6 z" />
 
-    <!-- Ruled lines -->
+    <!-- Ruled lines (MemoLightPrimary = #3F6B3F). -->
     <path
-        android:fillColor="#1E88E5"
+        android:fillColor="#3F6B3F"
         android:pathData="M39,46 h24 v3 h-24 z" />
     <path
-        android:fillColor="#1E88E5"
+        android:fillColor="#3F6B3F"
         android:pathData="M39,56 h24 v3 h-24 z" />
     <path
-        android:fillColor="#1E88E5"
+        android:fillColor="#3F6B3F"
         android:pathData="M39,66 h16 v3 h-16 z" />
 </vector>

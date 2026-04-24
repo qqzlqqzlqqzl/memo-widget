@@ -1,5 +1,23 @@
 # Memo Widget — Agent Implementation Spec
 
+> ⚠️ **HISTORICAL — NOT CURRENT STATE**
+>
+> 这份文件是 **P0 阶段**（v0.1.0 之前）给并行实现 agent 的任务分工 spec，已过期。
+> 如今 (**v0.6.0-p4.1**) 的实际架构、依赖、schema 与此文档出入很大：
+>
+> - 实际 `targetSdk = 35`（不是 34）· `AGP = 8.7.3`（不是 8.5）
+> - 加了 Room (schema v6) / WorkManager / AlarmManager / EncryptedSharedPreferences —— 不在此 spec 里
+> - `MemoRepository` 真实签名已扩展远超 §4.3；加了 `EventRepository`、多个 Dao、Sync 层
+> - DataStore 做了一次从明文到加密的迁移，spec 里"V1 不需要加密"已不成立
+>
+> 保留本文件是为了**追溯 P0 设计意图**。现在动代码请看：
+>
+> - **[HANDOFF.md](HANDOFF.md)** — 当前架构 + 接手指南
+> - **[README.md](README.md)** — 技术总览
+> - **源码**：`app/src/main/java/dev/aria/memo/` 是唯一 source of truth
+
+---
+
 **Project root**: `~/projects/memo-widget/`
 **Package**: `dev.aria.memo`
 **Min SDK**: 26 (Android 8) · **Target SDK**: 34 · **Kotlin**: 2.0 · **AGP**: 8.5

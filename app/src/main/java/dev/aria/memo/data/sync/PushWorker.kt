@@ -1,0 +1,294 @@
+package dev.aria.memo.data.sync
+
+import android.content.Context
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+import dev.aria.memo.data.ErrorCode
+import dev.aria.memo.data.GhDeleteRequest
+import dev.aria.memo.data.GhPutRequest
+import dev.aria.memo.data.MemoResult
+import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.ics.IcsCodec
+import dev.aria.memo.data.widget.WidgetRefresher
+import java.util.Base64
+
+/**
+ * Background push of dirty note files and events to GitHub.
+ *
+ * Fixes #6: every note PUT happens inside [PathLocker.withLock] so a foreground
+ * `appendToday` cannot race this worker on the same SHA.
+ * Fixes #11: posts [SyncStatus] to [SyncStatusBus] so UI can surface errors.
+ * Fixes #21: wraps the whole body in try/finally so the UI can never get
+ * stranded on [SyncStatus.Syncing] if something unexpected aborts the worker.
+ * Fixes #27: a 409/422 CONFLICT on a note PUT is transparently re-attempted
+ * once after refreshing the remote SHA, because the common cause is a
+ * parallel push from another device rather than a semantic conflict.
+ *
+ * WorkManager may instantiate this Worker before Application.onCreate on a
+ * cold boot; the idempotent [ServiceLocator.init] guards against that NPE.
+ */
+class PushWorker(
+    appContext: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(appContext, params) {
+
+    override suspend fun doWork(): Result = try {
+        doWorkInner()
+    } finally {
+        // Fixes #21: if anything threw or an early return skipped the status
+        // emit below, clear the Syncing spinner so the UI doesn't hang.
+        if (SyncStatusBus.status.value is SyncStatus.Syncing) {
+            SyncStatusBus.emit(SyncStatus.Idle)
+        }
+    }
+
+    private suspend fun doWorkInner(): Result {
+        ServiceLocator.init(applicationContext)
+        val settings = ServiceLocator.settingsStore
+        val api = ServiceLocator.api()
+        val noteDao = ServiceLocator.noteDao()
+        val eventDao = ServiceLocator.eventDao()
+        val singleNoteDao = ServiceLocator.singleNoteDao()
+        val config = settings.current()
+        if (!config.isConfigured) {
+            SyncStatusBus.emit(SyncStatus.Error(ErrorCode.NOT_CONFIGURED, "还没配置 GitHub"))
+            return Result.failure()
+        }
+
+        val pendingNotes = noteDao.pending()
+        val pendingEvents = eventDao.pending()
+        val pendingSingleNotes = singleNoteDao.pending()
+        if (pendingNotes.isEmpty() && pendingEvents.isEmpty() && pendingSingleNotes.isEmpty()) {
+            return Result.success()
+        }
+        SyncStatusBus.emit(SyncStatus.Syncing)
+
+        var retry = false
+        var lastError: Pair<ErrorCode, String>? = null
+
+        // --- notes ---------------------------------------------------------
+        for (row in pendingNotes) {
+            val outcome = PathLocker.withLock(row.path) {
+                val encoded = Base64.getEncoder().encodeToString(row.content.toByteArray(Charsets.UTF_8))
+                val firstAttempt = api.putFile(
+                    config,
+                    row.path,
+                    GhPutRequest(
+                        message = "memo: ${row.path}",
+                        content = encoded,
+                        branch = config.branch,
+                        sha = row.githubSha,
+                    ),
+                )
+                // Fixes #27: one SHA-refresh retry for note conflicts. The
+                // normal cause is another device pushing between our last pull
+                // and this PUT; grabbing the fresh sha and replaying exactly
+                // once keeps convergence cheap without looping forever.
+                if (firstAttempt is MemoResult.Err && firstAttempt.code == ErrorCode.CONFLICT) {
+                    val refreshed = api.getFile(config, row.path)
+                    if (refreshed is MemoResult.Ok) {
+                        api.putFile(
+                            config,
+                            row.path,
+                            GhPutRequest(
+                                message = "memo: ${row.path}",
+                                content = encoded,
+                                branch = config.branch,
+                                sha = refreshed.value.sha,
+                            ),
+                        )
+                    } else {
+                        firstAttempt
+                    }
+                } else {
+                    firstAttempt
+                }
+            }
+            when (outcome) {
+                is MemoResult.Ok ->
+                    noteDao.markClean(row.path, outcome.value.content.sha, System.currentTimeMillis())
+                is MemoResult.Err -> when (outcome.code) {
+                    ErrorCode.NETWORK, ErrorCode.CONFLICT -> {
+                        retry = true
+                        lastError = outcome.code to outcome.message
+                    }
+                    ErrorCode.UNAUTHORIZED -> {
+                        SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, outcome.message))
+                        return Result.failure()
+                    }
+                    else -> lastError = outcome.code to outcome.message
+                }
+            }
+        }
+
+        // --- events --------------------------------------------------------
+        // Fixes #6 (events arm): lock on filePath so EventRepository's foreground
+        // writes can't race us on the same .ics SHA.
+        for (row in pendingEvents) {
+            val outcome: MemoResult<Unit> = PathLocker.withLock(row.filePath) {
+                if (row.tombstoned) {
+                    val sha = row.githubSha
+                    if (sha == null) {
+                        eventDao.hardDelete(row.uid)
+                        MemoResult.Ok(Unit)
+                    } else {
+                        val req = GhDeleteRequest(
+                            message = "event delete: ${row.uid}",
+                            sha = sha,
+                            branch = config.branch,
+                        )
+                        when (val res = api.deleteFile(config, row.filePath, req)) {
+                            is MemoResult.Ok -> {
+                                eventDao.hardDelete(row.uid)
+                                MemoResult.Ok(Unit)
+                            }
+                            is MemoResult.Err -> when (res.code) {
+                                ErrorCode.NOT_FOUND -> {
+                                    eventDao.hardDelete(row.uid)
+                                    MemoResult.Ok(Unit)
+                                }
+                                else -> MemoResult.Err(res.code, res.message)
+                            }
+                        }
+                    }
+                } else {
+                    val ics = IcsCodec.encode(row)
+                    val encoded = Base64.getEncoder().encodeToString(ics.toByteArray(Charsets.UTF_8))
+                    val req = GhPutRequest(
+                        message = "event: ${row.summary.take(40)}",
+                        content = encoded,
+                        branch = config.branch,
+                        sha = row.githubSha,
+                    )
+                    when (val res = api.putFile(config, row.filePath, req)) {
+                        is MemoResult.Ok -> {
+                            eventDao.markClean(row.uid, res.value.content.sha, System.currentTimeMillis())
+                            MemoResult.Ok(Unit)
+                        }
+                        is MemoResult.Err -> MemoResult.Err(res.code, res.message)
+                    }
+                }
+            }
+            if (outcome is MemoResult.Err) {
+                when (outcome.code) {
+                    ErrorCode.NETWORK, ErrorCode.CONFLICT -> {
+                        retry = true
+                        lastError = outcome.code to outcome.message
+                    }
+                    ErrorCode.UNAUTHORIZED -> {
+                        SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, outcome.message))
+                        return Result.failure()
+                    }
+                    else -> lastError = outcome.code to outcome.message
+                }
+            }
+        }
+
+        // --- single notes (P5 obsidian-style) -----------------------------
+        // Same PathLocker + tombstone semantics as the events arm. Each row is
+        // a standalone markdown file under `notes/`. Tombstones drive DELETE;
+        // fresh rows (no githubSha) get a plain PUT; subsequent edits re-PUT
+        // with the known SHA. Conflict/network errors trigger a retry.
+        for (row in pendingSingleNotes) {
+            val outcome: MemoResult<Unit> = PathLocker.withLock(row.filePath) {
+                if (row.tombstoned) {
+                    val sha = row.githubSha
+                    if (sha == null) {
+                        // Never made it to GitHub in the first place — just drop locally.
+                        singleNoteDao.hardDelete(row.uid)
+                        MemoResult.Ok(Unit)
+                    } else {
+                        val req = GhDeleteRequest(
+                            message = "note delete: ${row.filePath}",
+                            sha = sha,
+                            branch = config.branch,
+                        )
+                        when (val res = api.deleteFile(config, row.filePath, req)) {
+                            is MemoResult.Ok -> {
+                                singleNoteDao.hardDelete(row.uid)
+                                MemoResult.Ok(Unit)
+                            }
+                            is MemoResult.Err -> when (res.code) {
+                                ErrorCode.NOT_FOUND -> {
+                                    // Already gone remotely — converge.
+                                    singleNoteDao.hardDelete(row.uid)
+                                    MemoResult.Ok(Unit)
+                                }
+                                else -> MemoResult.Err(res.code, res.message)
+                            }
+                        }
+                    }
+                } else {
+                    val encoded = Base64.getEncoder()
+                        .encodeToString(row.body.toByteArray(Charsets.UTF_8))
+                    val req = GhPutRequest(
+                        message = "note: ${row.title.take(40).ifBlank { row.filePath }}",
+                        content = encoded,
+                        branch = config.branch,
+                        sha = row.githubSha,
+                    )
+                    when (val res = api.putFile(config, row.filePath, req)) {
+                        is MemoResult.Ok -> {
+                            singleNoteDao.markClean(
+                                row.uid,
+                                res.value.content.sha,
+                                System.currentTimeMillis(),
+                            )
+                            MemoResult.Ok(Unit)
+                        }
+                        is MemoResult.Err -> MemoResult.Err(res.code, res.message)
+                    }
+                }
+            }
+            if (outcome is MemoResult.Err) {
+                when (outcome.code) {
+                    ErrorCode.NETWORK, ErrorCode.CONFLICT -> {
+                        retry = true
+                        lastError = outcome.code to outcome.message
+                    }
+                    ErrorCode.UNAUTHORIZED -> {
+                        SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, outcome.message))
+                        return Result.failure()
+                    }
+                    else -> lastError = outcome.code to outcome.message
+                }
+            }
+        }
+
+        // State machine (Fix-6 / C6): preserve `lastError` visibility even
+        // when we're about to retry.
+        //
+        // Previously `retry -> emit(Idle)` clobbered every UNKNOWN/5xx the
+        // events or single-notes branches recorded into `lastError` as soon
+        // as *any* row hit CONFLICT/NETWORK on the notes branch — painting
+        // the UI green (Idle) while parts of the push were silently stuck.
+        // Now:
+        //   - retry + lastError recorded → surface the error (user sees it);
+        //   - retry + no lastError       → Idle (spinner off, no banner);
+        //   - lastError without retry    → Error (unchanged);
+        //   - clean run                  → Ok (unchanged).
+        //
+        // Note: we can't `no-op` the retry branch — the outer try/finally
+        // only clears Syncing to Idle, so a bus left on Syncing would just
+        // fall back to Idle anyway. Explicit Idle here keeps intent clear.
+        when {
+            retry -> {
+                if (lastError != null) {
+                    SyncStatusBus.emit(
+                        SyncStatus.Error(lastError!!.first, lastError!!.second),
+                    )
+                } else {
+                    SyncStatusBus.emit(SyncStatus.Idle)
+                }
+            }
+            lastError != null ->
+                SyncStatusBus.emit(SyncStatus.Error(lastError!!.first, lastError!!.second))
+            else -> SyncStatusBus.emit(SyncStatus.Ok)
+        }
+        // P8 widget 自推：Push 成功意味着 dirty 清了，widget 底部的"同步状态"
+        // （未来）要能反映；即使在 retry 分支，已经 markClean 的行也需要刷新
+        // （push 是逐行做的，有些成功有些失败，Room 可能已经部分更新）。
+        WidgetRefresher.refreshAll(applicationContext)
+        return if (retry) Result.retry() else Result.success()
+    }
+}

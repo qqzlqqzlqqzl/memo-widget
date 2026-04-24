@@ -5,12 +5,12 @@ import kotlinx.serialization.Serializable
 /**
  * DTOs for the GitHub "Contents" REST API (v2022-11-28).
  *
- * Matches AGENT_SPEC.md section 2.3. These are transport types only; callers
- * should work with decoded strings + [MemoEntry] once the response is parsed.
+ * GET on a file path returns [GhContents]; on a directory path it returns a
+ * JSON array of items (same fields but `content` is absent for listings).
+ * [GhContentListItem] covers that listing shape.
  *
- * GitHub's `content` field from GET is base64 **with embedded newlines every
- * 60 chars** (RFC 2045). Callers decoding [GhContents.content] MUST strip
- * whitespace first — see [GhContents.decodedContent].
+ * GitHub's `content` field from GET is base64 with embedded newlines every
+ * 60 chars (RFC 2045). [GhContents.decodedContent] strips whitespace first.
  */
 @Serializable
 data class GhContents(
@@ -18,13 +18,6 @@ data class GhContents(
     val content: String,
     val encoding: String,
 ) {
-    /**
-     * Base64-decoded file content as a UTF-8 string.
-     *
-     * GitHub returns base64 wrapped at 60 columns with `\n` separators. We
-     * strip *all* whitespace before decoding; [android.util.Base64.DEFAULT]
-     * is lenient, but callers may also use java.util.Base64 which is not.
-     */
     val decodedContent: String
         get() {
             val stripped = content.replace("\\s".toRegex(), "")
@@ -34,11 +27,27 @@ data class GhContents(
 }
 
 @Serializable
+data class GhContentListItem(
+    val name: String,
+    val path: String,
+    val sha: String,
+    val type: String, // "file" | "dir" | "symlink" | "submodule"
+    val size: Long = 0,
+)
+
+@Serializable
 data class GhPutRequest(
     val message: String,
     val content: String,
     val branch: String,
     val sha: String? = null,
+)
+
+@Serializable
+data class GhDeleteRequest(
+    val message: String,
+    val sha: String,
+    val branch: String,
 )
 
 @Serializable

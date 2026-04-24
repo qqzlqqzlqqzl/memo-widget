@@ -1,5 +1,6 @@
 package dev.aria.memo.ui
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,24 +12,28 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,13 +43,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.aria.memo.data.PreferencesStore
+import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.oauth.GitHubOAuthClient
+import dev.aria.memo.notify.NotificationPermissionBus
+import dev.aria.memo.notify.QuickAddNotificationManager
+import dev.aria.memo.ui.components.MemoCard
+import dev.aria.memo.ui.oauth.OAuthSignInDialog
+import dev.aria.memo.ui.oauth.OAuthSignInViewModel
+import dev.aria.memo.ui.theme.MemoSpacing
 import dev.aria.memo.ui.theme.MemoTheme
+import dev.aria.memo.ui.theme.MemoThemeColors
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,12 +70,55 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onOpenEditor: () -> Unit,
+    onOpenHelp: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var patVisible by remember { mutableStateOf(false) }
+    var aiKeyVisible by remember { mutableStateOf(false) }
+    // Fixes #24: subscribe to the permission bus so denied state surfaces a guidance card.
+    val notificationDenied by NotificationPermissionBus.denied.collectAsStateWithLifecycle()
+
+    // FLAG_SECURE is scoped to the moment the PAT is visible in plaintext.
+    // Other tabs (notes list, calendar) remain screen-capture-friendly.
+    val ctx = LocalContext.current
+
+    // Quick-add status-bar toggle — lives in PreferencesStore, independent of
+    // the GitHub-config-focused SettingsStore.
+    val preferencesStore = remember(ctx) { PreferencesStore(ctx.applicationContext) }
+    val quickAddEnabled by preferencesStore.quickAddEnabled
+        .collectAsStateWithLifecycle(initialValue = false)
+
+    // OAuth device-flow scaffolding. Kept local so the `ui/oauth/` package
+    // doesn't need any of the SettingsScreen state.
+    val oauthClient = remember { GitHubOAuthClient(ServiceLocator.httpClient()) }
+    val oauthViewModel = remember {
+        OAuthSignInViewModel(oauthClient, ServiceLocator.settingsStore)
+    }
+    // Severe fix: the VM is held in a plain `remember`, not a ViewModelStore, so
+    // leaving and re-entering the settings tab would otherwise leave a polling
+    // job alive on the old instance. Cancel it when the composable leaves.
+    androidx.compose.runtime.DisposableEffect(oauthViewModel) {
+        onDispose { oauthViewModel.reset() }
+    }
+    var showClientIdDialog by remember { mutableStateOf(false) }
+    var showOAuthDialog by remember { mutableStateOf(false) }
+    var pendingClientId by remember { mutableStateOf("") }
+    var clientIdDraft by remember { mutableStateOf("") }
+    androidx.compose.runtime.DisposableEffect(patVisible, aiKeyVisible) {
+        val activity = ctx as? android.app.Activity
+        val window = activity?.window
+        // Treat the AI api key with the same screen-capture discipline as the
+        // GitHub PAT — either plaintext secret toggling on should turn FLAG_SECURE on.
+        if (patVisible || aiKeyVisible) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+    }
 
     // Surface saved / error events as Snackbars then consume them.
     LaunchedEffect(state.lastSavedAt) {
@@ -73,11 +134,48 @@ fun SettingsScreen(
             viewModel.consumeError()
         }
     }
+    // AI "测试连接" outcomes piggy-back on the same snackbar host. Two distinct
+    // strings so the user can tell which test ran (if more are added later).
+    LaunchedEffect(state.aiTestResult) {
+        val outcome = state.aiTestResult
+        if (outcome != null) {
+            val text = when (outcome) {
+                is AiTestOutcome.Success -> "AI 连接成功 ✓"
+                is AiTestOutcome.Failure -> "AI 连接失败：${outcome.message}"
+            }
+            scope.launch { snackbarHostState.showSnackbar(text) }
+            viewModel.consumeAiTestResult()
+        }
+    }
+
+    // Clicking "用 GitHub 登录" either asks for a client id (first run) or
+    // jumps straight into the device-flow dialog (saved client id).
+    val onOAuthClick: () -> Unit = {
+        scope.launch {
+            val saved = preferencesStore.githubClientId.first()
+            if (saved.isBlank()) {
+                clientIdDraft = ""
+                showClientIdDialog = true
+            } else {
+                pendingClientId = saved
+                showOAuthDialog = true
+            }
+        }
+    }
+
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(title = { Text("Memo Widget · 设置") })
+            // Fix-7 #5 (UI-A report): Settings is a dense form page — the
+            // 140dp LargeTopAppBar hero title was wasting vertical space
+            // above the first field. Switched to the standard `TopAppBar`
+            // which keeps the title crisp without pushing content down.
+            TopAppBar(
+                title = { Text("Memo Widget · 设置") },
+                scrollBehavior = scrollBehavior,
+            )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
@@ -85,15 +183,105 @@ fun SettingsScreen(
             state = state,
             patVisible = patVisible,
             onTogglePatVisibility = { patVisible = !patVisible },
+            aiKeyVisible = aiKeyVisible,
+            onToggleAiKeyVisibility = { aiKeyVisible = !aiKeyVisible },
             onPatChange = viewModel::onPatChange,
             onOwnerChange = viewModel::onOwnerChange,
             onRepoChange = viewModel::onRepoChange,
             onBranchChange = viewModel::onBranchChange,
             onSave = viewModel::save,
+            onAiProviderUrlChange = viewModel::onAiProviderUrlChange,
+            onAiModelChange = viewModel::onAiModelChange,
+            onAiApiKeyChange = viewModel::onAiApiKeyChange,
+            onSaveAi = viewModel::saveAiConfig,
+            onTestAi = viewModel::testAiConnection,
             onOpenEditor = onOpenEditor,
+            onOpenHelp = onOpenHelp,
+            onOAuthSignIn = onOAuthClick,
             innerPadding = innerPadding,
+            notificationDenied = notificationDenied,
+            onOpenNotificationSettings = { openAppNotificationSettings(ctx) },
+            quickAddEnabled = quickAddEnabled,
+            onQuickAddToggle = { requested ->
+                scope.launch {
+                    preferencesStore.setQuickAddEnabled(requested)
+                    if (requested) {
+                        QuickAddNotificationManager.show(ctx)
+                    } else {
+                        QuickAddNotificationManager.hide(ctx)
+                    }
+                }
+            },
         )
     }
+
+    if (showClientIdDialog) {
+        AlertDialog(
+            onDismissRequest = { showClientIdDialog = false },
+            title = { Text("填入 GitHub OAuth Client ID") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+                    Text(
+                        text = "先去 GitHub Settings → Developer settings → OAuth Apps 注册一个应用，" +
+                            "把它的 Client ID 填到这里（它是公开标识，不是 Secret，可以明文保存）。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedTextField(
+                        value = clientIdDraft,
+                        onValueChange = { clientIdDraft = it },
+                        label = { Text("Client ID") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = clientIdDraft.isNotBlank(),
+                    onClick = {
+                        val trimmed = clientIdDraft.trim()
+                        scope.launch {
+                            preferencesStore.setGithubClientId(trimmed)
+                            pendingClientId = trimmed
+                            showClientIdDialog = false
+                            showOAuthDialog = true
+                        }
+                    },
+                ) { Text("继续") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClientIdDialog = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (showOAuthDialog && pendingClientId.isNotBlank()) {
+        OAuthSignInDialog(
+            viewModel = oauthViewModel,
+            clientId = pendingClientId,
+            onDismiss = { showOAuthDialog = false },
+            onSuccess = {
+                showOAuthDialog = false
+                // Severe fix: `onPatChange` only updates UI state and marks it as
+                // user-edited; if the user navigates away without pressing "保存",
+                // the next save() would rewrite the persisted token with whatever
+                // stale value happened to be in state. Calling reload() pulls the
+                // freshly-persisted token (and owner/repo/branch) from
+                // SettingsStore, giving the UI an authoritative snapshot.
+                viewModel.reload()
+                scope.launch { snackbarHostState.showSnackbar("已登录 GitHub，令牌已保存 ✓") }
+            },
+        )
+    }
+}
+
+private fun openAppNotificationSettings(ctx: android.content.Context) {
+    // Android 8+ deep-link to the app's notification channels page. Fixes #24.
+    val intent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+        putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    ctx.startActivity(intent)
 }
 
 @Composable
@@ -108,15 +296,35 @@ private fun SettingsContent(
     onSave: () -> Unit,
     onOpenEditor: () -> Unit,
     innerPadding: PaddingValues,
+    aiKeyVisible: Boolean = false,
+    onToggleAiKeyVisibility: () -> Unit = {},
+    onAiProviderUrlChange: (String) -> Unit = {},
+    onAiModelChange: (String) -> Unit = {},
+    onAiApiKeyChange: (String) -> Unit = {},
+    onSaveAi: () -> Unit = {},
+    onTestAi: () -> Unit = {},
+    onOpenHelp: () -> Unit = {},
+    onOAuthSignIn: () -> Unit = {},
+    notificationDenied: Boolean = false,
+    onOpenNotificationSettings: () -> Unit = {},
+    quickAddEnabled: Boolean = false,
+    onQuickAddToggle: (Boolean) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
             .padding(innerPadding)
-            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .padding(horizontal = MemoSpacing.xl, vertical = MemoSpacing.md)
             .verticalScroll(rememberScrollState())
             .fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(MemoSpacing.md),
     ) {
+        if (notificationDenied) {
+            NotificationPermissionCard(onOpenSettings = onOpenNotificationSettings)
+        }
+        QuickAddToggleCard(
+            enabled = quickAddEnabled,
+            onToggle = onQuickAddToggle,
+        )
         StatusCard(state = state)
 
         OutlinedTextField(
@@ -138,6 +346,13 @@ private fun SettingsContent(
             supportingText = { Text("仅本机存储，不会上传到任何其它地方") },
             modifier = Modifier.fillMaxWidth(),
         )
+
+        OutlinedButton(
+            onClick = onOAuthSignIn,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("用 GitHub 登录（Device Flow）")
+        }
 
         OutlinedTextField(
             value = state.owner,
@@ -164,7 +379,7 @@ private fun SettingsContent(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(MemoSpacing.xs))
 
         Button(
             onClick = onSave,
@@ -188,7 +403,150 @@ private fun SettingsContent(
         ) {
             Icon(Icons.Filled.Edit, contentDescription = null)
             Spacer(Modifier.height(0.dp))
-            Text("  立即写一条", modifier = Modifier.padding(start = 4.dp))
+            Text("  立即写一条", modifier = Modifier.padding(start = MemoSpacing.xs))
+        }
+
+        AiConfigSection(
+            state = state,
+            keyVisible = aiKeyVisible,
+            onToggleKeyVisibility = onToggleAiKeyVisibility,
+            onProviderUrlChange = onAiProviderUrlChange,
+            onModelChange = onAiModelChange,
+            onApiKeyChange = onAiApiKeyChange,
+            onSave = onSaveAi,
+            onTest = onTestAi,
+        )
+
+        HelpEntryCard(onOpenHelp = onOpenHelp)
+    }
+}
+
+@Composable
+private fun AiConfigSection(
+    state: SettingsUiState,
+    keyVisible: Boolean,
+    onToggleKeyVisibility: () -> Unit,
+    onProviderUrlChange: (String) -> Unit,
+    onModelChange: (String) -> Unit,
+    onApiKeyChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onTest: () -> Unit,
+) {
+    // Block is a cohesive group — card gives it a visual boundary so the GitHub
+    // fields above and the help card below don't blur together. Accent tint
+    // reuses the tertiary role so it reads as "secondary feature", matching the
+    // help card's styling conventions.
+    MemoCard(accentColor = MaterialTheme.colorScheme.tertiary) {
+        Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+            Text(
+                text = "AI 配置",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            Text(
+                text = "支持 OpenAI / DeepSeek / Azure / ollama 等 OpenAI-compatible endpoint。" +
+                    "密钥仅保存在本机加密存储中。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            OutlinedTextField(
+                value = state.aiProviderUrl,
+                onValueChange = onProviderUrlChange,
+                label = { Text("Provider URL") },
+                placeholder = { Text("https://api.openai.com/v1/chat/completions") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            OutlinedTextField(
+                value = state.aiModel,
+                onValueChange = onModelChange,
+                label = { Text("Model") },
+                placeholder = { Text("gpt-4o-mini / deepseek-chat / llama3") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            OutlinedTextField(
+                value = state.aiApiKey,
+                onValueChange = onApiKeyChange,
+                label = { Text("API Key") },
+                placeholder = { Text("sk-…") },
+                singleLine = true,
+                visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    IconButton(onClick = onToggleKeyVisibility) {
+                        Icon(
+                            imageVector = if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = if (keyVisible) "隐藏 API Key" else "显示 API Key",
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
+            ) {
+                Button(
+                    onClick = onSave,
+                    enabled = !state.isSavingAi && state.loaded,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (state.isSavingAi) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.height(18.dp),
+                        )
+                    } else {
+                        Text("保存 AI 配置")
+                    }
+                }
+                OutlinedButton(
+                    onClick = onTest,
+                    enabled = !state.isTestingAi && state.isAiConfigured,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (state.isTestingAi) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.height(18.dp),
+                        )
+                    } else {
+                        Text("测试连接")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HelpEntryCard(onOpenHelp: () -> Unit) {
+    // User feedback called out missing in-app docs — this card opens the bundled
+    // user_guide.md in HelpScreen without leaving the app.
+    MemoCard(
+        accentColor = MaterialTheme.colorScheme.tertiary,
+        onClick = onOpenHelp,
+    ) {
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+            )
+            Text(
+                text = "查看使用说明书",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = MemoSpacing.sm),
+            )
         }
     }
 }
@@ -196,41 +554,83 @@ private fun SettingsContent(
 @Composable
 private fun StatusCard(state: SettingsUiState) {
     val configured = state.isConfigured
-    val colors = if (configured) {
-        CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        )
+    val accent = if (configured) {
+        MaterialTheme.colorScheme.primary
     } else {
-        CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        MaterialTheme.colorScheme.error
+    }
+    MemoCard(accentColor = accent) {
+        Text(
+            text = if (configured) "当前配置已就绪 ✓" else "还缺：${state.missingFields.joinToString("、")}",
+            style = MaterialTheme.typography.titleMedium,
+            color = accent,
+        )
+        Text(
+            text = "备注会追加到 ${state.owner.ifBlank { "<owner>" }}/${state.repo.ifBlank { "<repo>" }} 的 ${state.branch.ifBlank { "main" }} 分支",
+            style = MaterialTheme.typography.bodyMedium,
         )
     }
-    Card(colors = colors, modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+}
+
+@Composable
+private fun QuickAddToggleCard(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    MemoCard {
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                text = if (configured) "当前配置已就绪 ✓" else "还缺：${state.missingFields.joinToString("、")}",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = "备注会追加到 ${state.owner.ifBlank { "<owner>" }}/${state.repo.ifBlank { "<repo>" }} 的 ${state.branch.ifBlank { "main" }} 分支",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Column(modifier = Modifier.padding(end = MemoSpacing.md).weight(1f)) {
+                Text(
+                    text = "常驻通知栏快速入口",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = "在通知栏常驻一条低优先级通知，点一下直接打开写备忘。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onToggle)
         }
     }
 }
 
+@Composable
+private fun NotificationPermissionCard(onOpenSettings: () -> Unit) {
+    // Fixes #24: user has denied POST_NOTIFICATIONS — reminders won't fire.
+    // Warm amber accent so it reads as "heads up", not "error".
+    // Fix-7 #1 (UI-A report): was hardcoded `Color(0xFFB8860B)`; lifted to
+    // theme so dark mode brightens the amber (`MemoDarkWarning`) instead of
+    // reusing the dim light-mode value against a dark surface.
+    val amberAccent = MemoThemeColors.warning
+    MemoCard(accentColor = amberAccent) {
+        Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+            Text(
+                text = "通知权限未开启，日程提醒不会响",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "在系统设置里允许通知后，已排期的提醒就能按时响起。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onOpenSettings) { Text("去系统设置") }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Preview(showBackground = true, name = "Settings · empty")
 @Composable
 private fun SettingsContentEmptyPreview() {
     MemoTheme {
         Scaffold(
             topBar = {
-                androidx.compose.material3.TopAppBar(title = { Text("Memo Widget · 设置") })
+                TopAppBar(title = { Text("Memo Widget · 设置") })
             },
         ) { inner ->
             SettingsContent(
@@ -249,13 +649,14 @@ private fun SettingsContentEmptyPreview() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Preview(showBackground = true, name = "Settings · filled")
 @Composable
 private fun SettingsContentFilledPreview() {
     MemoTheme {
         Scaffold(
             topBar = {
-                androidx.compose.material3.TopAppBar(title = { Text("Memo Widget · 设置") })
+                TopAppBar(title = { Text("Memo Widget · 设置") })
             },
         ) { inner ->
             SettingsContent(

@@ -27,7 +27,29 @@ data class AppConfig(
         .replace("{yyyy}", date.year.toString())
         .replace("{MM}", date.monthValue.toString().padStart(2, '0'))
         .replace("{dd}", date.dayOfMonth.toString().padStart(2, '0'))
+
+    /**
+     * Security (Sec-1 / M1): the default [data class] `toString()` would include
+     * [pat] verbatim, so a stray `Log.d(tag, "$config")` or
+     * `IllegalStateException("bad config: $config")` could leak a GitHub PAT to
+     * logcat / crash reporters. We redact the token while keeping length +
+     * prefix/suffix fingerprint for debugging — enough to disambiguate "token
+     * missing" from "token truncated on paste" without exposing the secret.
+     */
+    override fun toString(): String =
+        "AppConfig(owner=$owner, repo=$repo, branch=$branch, " +
+            "pathTemplate=$pathTemplate, pat=${pat.redactSecret()})"
 }
+
+/**
+ * Redact a bearer-style secret for logs/crash reports. Keeps enough shape
+ * information to debug a mis-paste (length, first four / last two chars) but
+ * never the full value. Blank inputs render as `(empty)` so a missing token
+ * is visually distinct from a present one.
+ */
+internal fun String.redactSecret(): String =
+    if (isBlank()) "(empty)"
+    else "(${length}chars, ${take(4)}***${takeLast(2)})"
 
 /**
  * A single memo entry parsed from a day's markdown file.
@@ -37,6 +59,22 @@ data class AppConfig(
  * header and the next one (trimmed of leading/trailing whitespace).
  */
 data class MemoEntry(
+    val date: LocalDate,
+    val time: LocalTime,
+    val body: String,
+)
+
+/**
+ * A memo entry surfaced *across* day-files, carrying the owning date so the
+ * widget can render a "MM/DD HH:MM" prefix when recent entries span multiple
+ * days. See [MemoRepository.recentEntriesAcrossDays].
+ *
+ * Structurally identical to [MemoEntry] today; kept as a distinct type so the
+ * intent is obvious at call-sites and so future fields (e.g. a pinned flag
+ * hoisted from the containing file) don't leak into the today-only MemoEntry
+ * contract.
+ */
+data class DatedMemoEntry(
     val date: LocalDate,
     val time: LocalTime,
     val body: String,
