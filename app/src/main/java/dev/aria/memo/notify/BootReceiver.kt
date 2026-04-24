@@ -3,6 +3,7 @@ package dev.aria.memo.notify
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import dev.aria.memo.data.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,9 +24,23 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 ServiceLocator.init(appContext)
                 AlarmScheduler.rescheduleAll(appContext)
+            } catch (t: Throwable) {
+                // Sec-1 / H1: previously any Throwable (e.g. a corrupt Keystore
+                // throwing KeyStoreException inside ServiceLocator.init, or
+                // Room failing to open on post-reboot storage) was swallowed by
+                // the coroutine scope, leaving every scheduled alarm silently
+                // un-armed. Log at warn level so the next adb logcat pull
+                // surfaces the failure — we can't Toast or retry from a boot
+                // BroadcastReceiver, but a breadcrumb is strictly better than
+                // silent data loss.
+                Log.w(TAG, "failed to restore alarms after boot", t)
             } finally {
                 pending.finish()
             }
         }
+    }
+
+    private companion object {
+        private const val TAG = "BootReceiver"
     }
 }

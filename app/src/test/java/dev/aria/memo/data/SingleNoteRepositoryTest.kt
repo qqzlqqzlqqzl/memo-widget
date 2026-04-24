@@ -68,7 +68,11 @@ class SingleNoteRepositoryTest {
             uid = fixedUid,
             nowMs = fixedNowMs,
         )
-        assertEquals("notes/2026-04-22-0915-note.md", entity.filePath)
+        // R11 (Fix-4 P8): blank-body slug now carries a 5-digit suffix to avoid
+        // UNIQUE-index collisions when two empty notes share the same minute.
+        val path = entity.filePath
+        assertTrue("expected note prefix, got $path", path.startsWith("notes/2026-04-22-0915-note-"))
+        assertTrue("expected .md suffix, got $path", path.endsWith(".md"))
         assertEquals("", entity.title)
     }
 

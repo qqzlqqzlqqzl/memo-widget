@@ -9,6 +9,7 @@ import dev.aria.memo.data.GhPutRequest
 import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.ics.IcsCodec
+import dev.aria.memo.data.widget.WidgetRefresher
 import java.util.Base64
 
 /**
@@ -254,14 +255,40 @@ class PushWorker(
             }
         }
 
-        // State machine: non-retry terminal failures → Error; success → Ok;
-        // pure retries → Idle (don't strand the UI on Syncing forever).
+        // State machine (Fix-6 / C6): preserve `lastError` visibility even
+        // when we're about to retry.
+        //
+        // Previously `retry -> emit(Idle)` clobbered every UNKNOWN/5xx the
+        // events or single-notes branches recorded into `lastError` as soon
+        // as *any* row hit CONFLICT/NETWORK on the notes branch — painting
+        // the UI green (Idle) while parts of the push were silently stuck.
+        // Now:
+        //   - retry + lastError recorded → surface the error (user sees it);
+        //   - retry + no lastError       → Idle (spinner off, no banner);
+        //   - lastError without retry    → Error (unchanged);
+        //   - clean run                  → Ok (unchanged).
+        //
+        // Note: we can't `no-op` the retry branch — the outer try/finally
+        // only clears Syncing to Idle, so a bus left on Syncing would just
+        // fall back to Idle anyway. Explicit Idle here keeps intent clear.
         when {
-            retry -> SyncStatusBus.emit(SyncStatus.Idle)
+            retry -> {
+                if (lastError != null) {
+                    SyncStatusBus.emit(
+                        SyncStatus.Error(lastError!!.first, lastError!!.second),
+                    )
+                } else {
+                    SyncStatusBus.emit(SyncStatus.Idle)
+                }
+            }
             lastError != null ->
                 SyncStatusBus.emit(SyncStatus.Error(lastError!!.first, lastError!!.second))
             else -> SyncStatusBus.emit(SyncStatus.Ok)
         }
+        // P8 widget 自推：Push 成功意味着 dirty 清了，widget 底部的"同步状态"
+        // （未来）要能反映；即使在 retry 分支，已经 markClean 的行也需要刷新
+        // （push 是逐行做的，有些成功有些失败，Room 可能已经部分更新）。
+        WidgetRefresher.refreshAll(applicationContext)
         return if (retry) Result.retry() else Result.success()
     }
 }

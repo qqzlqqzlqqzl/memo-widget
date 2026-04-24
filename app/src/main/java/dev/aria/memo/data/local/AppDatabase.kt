@@ -112,6 +112,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Singleton cache so repository classes that aren't constructed via
+         * [ServiceLocator] can still reach the live [AppDatabase] — notably
+         * needed to call [androidx.room.withTransaction] around compound write
+         * paths without threading the db through every constructor signature.
+         *
+         * Populated the first time [build] is called; read back via [instance].
+         * Safe for tests because tests construct their own in-memory databases
+         * and never invoke [build].
+         */
+        @Volatile
+        private var _instance: AppDatabase? = null
+
+        /**
+         * Return the last [AppDatabase] produced by [build], or `null` if the
+         * DI container hasn't initialised yet. Repositories that want to open
+         * a Room transaction can call this — when it returns null they should
+         * fall back to direct DAO calls (in practice only happens in unit tests
+         * that skip [ServiceLocator.init]).
+         */
+        fun instance(): AppDatabase? = _instance
+
         fun build(context: Context): AppDatabase = Room.databaseBuilder(
             context.applicationContext,
             AppDatabase::class.java,
@@ -127,5 +149,6 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_7_8,
             )
             .build()
+            .also { _instance = it }
     }
 }

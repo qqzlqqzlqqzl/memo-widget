@@ -21,7 +21,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -29,6 +28,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,7 +46,7 @@ import dev.aria.memo.ui.theme.MemoSpacing
 
 /**
  * AI chat screen. Three layout zones from top to bottom:
- *  - [LargeTopAppBar] with a back arrow and the screen title.
+ *  - [TopAppBar] with a back arrow and the screen title.
  *  - Context-mode [FilterChip] row (None / Current note / All notes). The
  *    "Current note" chip is only shown when the screen was opened with a
  *    `noteUid` nav arg — legacy day-files don't carry a uid so they can only
@@ -93,7 +93,10 @@ fun AiChatScreen(
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
+            // Fix-7 #5 (UI-A report): AI Chat is a conversation view; the
+            // bubble list needs vertical room, not a 140dp hero title. Plain
+            // TopAppBar keeps back arrow + screen title on one compact row.
+            TopAppBar(
                 title = { Text("AI 助手") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

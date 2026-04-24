@@ -13,16 +13,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +34,8 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +46,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,6 +64,7 @@ import dev.aria.memo.ui.components.MemoEmptyState
 import dev.aria.memo.ui.components.MemoSectionHeader
 import dev.aria.memo.ui.components.ScrollAwareFab
 import dev.aria.memo.ui.theme.MemoSpacing
+import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,13 +90,31 @@ fun NoteListScreen(
     }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
-    val listState = rememberLazyListState()
+    // Fix-6 (Bug-2): persist LazyListState across Tab switches so users with
+    // 100+ notes don't lose their scroll position every time they peek at the
+    // Tags/Calendar/Settings tab. LazyListState ships a built-in Saver; we
+    // rely on it via rememberSaveable so the state survives NavHost composable
+    // recomposition (NavHost's saveState=true keeps the NavBackStackEntry, but
+    // the composable-scoped rememberLazyListState itself was being recreated).
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     // FAB collapses once the list scrolls off the first visible item, so the
     // user sees the full "写一条" label at rest and a compact icon while they
     // scroll through dozens of notes without covering content.
     val fabExpanded by remember {
         derivedStateOf { listState.firstVisibleItemIndex == 0 }
     }
+
+    // Fix-6 (Bug-1 C4): snackbar host surfaces "已删除" + Undo after deletes.
+    // Kept at screen scope so it follows the user regardless of which row
+    // triggered the delete.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // Fix-6 (Bug-1 C4): the delete-confirm AlertDialog. `pendingDelete` holds
+    // the uid of the single-note the user long-pressed "🗑 删除" on; null means
+    // no dialog is showing. We keep this at screen scope so long-presses from
+    // any row share the same dialog instance.
+    var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -116,6 +140,7 @@ fun NoteListScreen(
                 text = "写一条",
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { inner ->
         Column(
             modifier = Modifier
@@ -132,12 +157,49 @@ fun NoteListScreen(
                 },
                 onTogglePin = { path, pinned -> viewModel.togglePin(path, pinned) },
                 onAskAiForNote = onOpenAiChat,
+                onDeleteRequest = { uid, title -> pendingDelete = PendingDelete(uid, title) },
                 listState = listState,
                 innerPadding = PaddingValues(0.dp),
             )
         }
     }
+
+    pendingDelete?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("确定删除？") },
+            text = {
+                Text(
+                    text = if (pending.title.isNotBlank()) {
+                        "将删除「${pending.title}」。"
+                    } else {
+                        "这条笔记将被删除。"
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val uid = pending.uid
+                    pendingDelete = null
+                    viewModel.delete(uid)
+                    scope.launch {
+                        snackbarHostState.showSnackbar(message = "已删除")
+                    }
+                }) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
 }
+
+/** Screen-scoped holder for the row awaiting deletion confirmation. */
+private data class PendingDelete(val uid: String, val title: String)
 
 @Composable
 private fun SyncBanner(status: SyncStatus, onDismiss: () -> Unit) {
@@ -173,7 +235,8 @@ private fun NoteListBody(
     onQueryChange: (String) -> Unit,
     onTogglePin: (String, Boolean) -> Unit,
     onAskAiForNote: (noteUid: String?) -> Unit,
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    onDeleteRequest: (uid: String, title: String) -> Unit,
+    listState: LazyListState,
     innerPadding: PaddingValues,
 ) {
     val context = LocalContext.current
@@ -207,8 +270,10 @@ private fun NoteListBody(
             if (query.isBlank()) {
                 MemoEmptyState(
                     icon = Icons.AutoMirrored.Outlined.Notes,
+                    // Fix-6 (Bug-2 hint): promote long-press as an entry point
+                    // so the "问 AI" / "删除" menu isn't invisible.
                     title = "还没有笔记",
-                    subtitle = "点右下角「写一条」开始记录",
+                    subtitle = "点右下角「写一条」开始记录 · 长按条目可问 AI 或删除",
                 )
             } else {
                 MemoEmptyState(
@@ -225,9 +290,20 @@ private fun NoteListBody(
             ) {
                 if (pinned.isNotEmpty()) {
                     item(key = "section-pinned") {
-                        MemoSectionHeader(text = "📌 置顶")
+                        // Fix-7 #9 (UI-A report): was "📌 置顶" with a color
+                        // emoji baked into the string — replaced with a
+                        // tinted Material icon via the new `leading` slot so
+                        // the section header matches the rest of the app's
+                        // outlined-palette iconography.
+                        MemoSectionHeader(text = "置顶", leading = Icons.Filled.PushPin)
                     }
-                    renderItems(pinned, onTogglePin, openSingleNote, onAskAiForNote)
+                    renderItems(
+                        pinned,
+                        onTogglePin,
+                        openSingleNote,
+                        onAskAiForNote,
+                        onDeleteRequest,
+                    )
                 }
                 if (unpinned.isNotEmpty()) {
                     if (pinned.isNotEmpty()) {
@@ -235,7 +311,13 @@ private fun NoteListBody(
                             MemoSectionHeader(text = "全部笔记")
                         }
                     }
-                    renderItems(unpinned, onTogglePin, openSingleNote, onAskAiForNote)
+                    renderItems(
+                        unpinned,
+                        onTogglePin,
+                        openSingleNote,
+                        onAskAiForNote,
+                        onDeleteRequest,
+                    )
                 }
                 item(key = "footer-spacer") {
                     // Leave breathing room below the last card so the FAB doesn't
@@ -256,6 +338,7 @@ private fun LazyListScope.renderItems(
     onTogglePin: (String, Boolean) -> Unit,
     onOpenSingleNote: (String) -> Unit,
     onAskAiForNote: (noteUid: String?) -> Unit,
+    onDeleteRequest: (uid: String, title: String) -> Unit,
 ) {
     list.forEach { item ->
         when (item) {
@@ -275,6 +358,9 @@ private fun LazyListScope.renderItems(
                         onTogglePin = onTogglePin,
                         onOpen = onOpenSingleNote,
                         onAskAi = { onAskAiForNote(item.uid) },
+                        onDelete = {
+                            onDeleteRequest(item.uid, item.title)
+                        },
                     )
                 }
             }
@@ -348,10 +434,15 @@ private fun SingleNoteRow(
     onTogglePin: (String, Boolean) -> Unit,
     onOpen: (String) -> Unit,
     onAskAi: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     // Fixes #71 (P7.0.1): long-press menu exposing "问 AI"; the tap opens
     // the note as before. Anchor is the MemoCard, menu offset trails the
     // finger so the user sees both items without moving.
+    //
+    // Fix-6 (Bug-1 C4): extended with a "删除" item so users have an in-app
+    // delete entry — previously the only way to remove a note was to edit it
+    // on GitHub and wait for pull to converge.
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
 
     Box {
@@ -419,6 +510,28 @@ private fun SingleNoteRow(
                 onClick = {
                     menuExpanded = false
                     onAskAi()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "删除",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    // Delegate to the screen-scoped AlertDialog so we get a
+                    // confirmation step before destructive action (matches the
+                    // pattern used by EventEditDialog's delete button).
+                    onDelete()
                 },
             )
         }

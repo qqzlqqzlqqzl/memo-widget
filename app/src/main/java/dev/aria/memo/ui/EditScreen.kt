@@ -1,5 +1,6 @@
 package dev.aria.memo.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
@@ -20,9 +22,13 @@ import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.HorizontalRule
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -35,6 +41,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,7 +54,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -75,6 +81,12 @@ fun EditScreen(
     onSaved: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    // Fix-6 (Bug-1 C4): expose a delete hook that the overflow menu drives
+    // when the editor is showing an existing single-note. EditActivity wires
+    // this to [EditViewModel.delete] + finish() so the user can wipe a note
+    // from the editor without having to go back to the list. null = new-note
+    // mode (no existing row to delete → overflow menu omits the item).
+    onDelete: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     // Body flows through the VM so checklist toggles and TextField edits share
@@ -89,6 +101,22 @@ fun EditScreen(
         mutableStateOf(TextFieldValue(vmBody))
     }
     var mode by rememberSaveable { mutableStateOf(ViewMode.Edit) }
+
+    // Fix-6 (Bug-2 / H1): track the body we first showed the user so we can
+    // detect unsaved edits on back-press. Captured once, then compared against
+    // the live `editorValue.text` — any divergence means the user has typed
+    // something we haven't persisted yet. `initialBody` hydrates the moment
+    // vmBody transitions from "" to a non-empty value (EditActivity primes the
+    // VM asynchronously).
+    var initialBody by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(vmBody) {
+        if (initialBody == null) initialBody = vmBody
+    }
+    // Fix-6 (Bug-2 / H1): confirm dialog state for the "discard unsaved?" flow.
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
+    // Fix-6 (Bug-1 C4): EditActivity overflow menu state + delete-confirm state.
+    var overflowExpanded by rememberSaveable { mutableStateOf(false) }
+    var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
 
     // When the VM pushes a body update (e.g. after a checklist toggle in read
     // mode), reflect it into the editor's saveable state so switching back to
@@ -125,6 +153,22 @@ fun EditScreen(
     val isSaving = state is SaveState.Saving
     val canSave = editorValue.text.isNotBlank() && !isSaving
 
+    // Fix-6 (Bug-2 / H1): unified "are there unsaved edits?" check. We compare
+    // against the first non-null initial body (trimmed both sides so stray
+    // whitespace doesn't fire a false positive on a pristine open). If no
+    // initial body has been captured yet, treat an empty editor as "nothing to
+    // lose" — this keeps the back-press for a new-note mode that the user
+    // hasn't typed in behaving like before (straight finish).
+    val hasUnsavedChanges: Boolean = !isSaving &&
+        editorValue.text.trim() != (initialBody ?: "").trim()
+
+    // Fix-6 (Bug-2 / H1): intercept the system back gesture so we can prompt
+    // before discarding a typed-but-unsaved draft. When there's nothing to
+    // lose we fall through to the default [onBack] — no dialog churn.
+    BackHandler(enabled = hasUnsavedChanges) {
+        showDiscardDialog = true
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -132,7 +176,15 @@ fun EditScreen(
                 TopAppBar(
                     title = { Text("写点什么") },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        IconButton(onClick = {
+                            // Honor the same "unsaved check" for the back arrow
+                            // so finger and gesture both get the prompt.
+                            if (hasUnsavedChanges) {
+                                showDiscardDialog = true
+                            } else {
+                                onBack()
+                            }
+                        }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     },
@@ -142,6 +194,42 @@ fun EditScreen(
                             enabled = canSave,
                         ) {
                             Icon(Icons.Filled.Save, contentDescription = "保存")
+                        }
+                        // Fix-6 (Bug-1 C4): overflow menu with "删除" item,
+                        // gated on the caller having wired [onDelete]. For
+                        // new-note mode (no existing uid) we still render the
+                        // overflow icon off — keeps the top bar compact.
+                        if (onDelete != null) {
+                            IconButton(onClick = { overflowExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = "更多操作",
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = overflowExpanded,
+                                onDismissRequest = { overflowExpanded = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "删除",
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showDeleteDialog = true
+                                    },
+                                )
+                            }
                         }
                     },
                 )
@@ -189,6 +277,68 @@ fun EditScreen(
                 innerPadding = innerPadding,
             )
         }
+    }
+
+    // Fix-6 (Bug-2 / H1): "您有未保存的改动" confirmation. Three outcomes:
+    //  - 保存 → fire the usual save path; Success-effect will call onSaved().
+    //  - 放弃 → leave without writing; reset() clears any transient state.
+    //  - 取消 → close the dialog, stay on the editor.
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text("是否保存更改？") },
+            text = { Text("当前改动还没有保存,放弃将无法恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscardDialog = false
+                    if (canSave) {
+                        viewModel.save(editorValue.text)
+                    } else {
+                        // Empty body can't be saved, but the user tapped 保存
+                        // with nothing to write — treat it as a benign discard
+                        // so they aren't stuck in a dialog loop.
+                        onBack()
+                    }
+                }) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                androidx.compose.foundation.layout.Row {
+                    TextButton(onClick = {
+                        showDiscardDialog = false
+                        onBack()
+                    }) {
+                        Text("放弃", color = MaterialTheme.colorScheme.error)
+                    }
+                    TextButton(onClick = { showDiscardDialog = false }) {
+                        Text("取消")
+                    }
+                }
+            },
+        )
+    }
+
+    // Fix-6 (Bug-1 C4): delete-confirm AlertDialog for the overflow menu.
+    if (showDeleteDialog && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("确定删除？") },
+            text = { Text("这条笔记将被删除,该操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    onDelete()
+                }) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 
@@ -249,8 +399,12 @@ private fun EditBody(
             // Tap-absorbing scrim while a save is in flight so the user can't
             // accidentally fire a second tap. Spinner is centered; the top-bar
             // LinearProgressIndicator already signals progress.
+            // Fix-7 #1 (UI-A report): was `Color.Black.copy(alpha = 0.18f)`,
+            // which all but disappears in dark mode. `colorScheme.scrim` is
+            // the M3 semantic slot; 0.32 alpha gives enough darken on light
+            // *and* enough contrast against a dark surface.
             Surface(
-                color = Color.Black.copy(alpha = 0.18f),
+                color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 Box(

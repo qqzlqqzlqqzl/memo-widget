@@ -45,6 +45,7 @@ private typealias ToggleTodoLine = suspend (String, Int, String, Boolean) -> Mem
 private typealias CreateSingleNote = suspend (String) -> MemoResult<SingleNoteEntity>
 private typealias UpdateSingleNote = suspend (String, String) -> MemoResult<SingleNoteEntity>
 private typealias LoadSingleNote = suspend (String) -> SingleNoteEntity?
+private typealias DeleteSingleNote = suspend (String) -> MemoResult<Unit>
 
 class EditViewModel @VisibleForTesting internal constructor(
     private val appendToday: AppendToday,
@@ -52,6 +53,7 @@ class EditViewModel @VisibleForTesting internal constructor(
     private val createSingleNote: CreateSingleNote,
     private val updateSingleNote: UpdateSingleNote,
     private val loadSingleNote: LoadSingleNote,
+    private val deleteSingleNote: DeleteSingleNote = { MemoResult.Err(ErrorCode.UNKNOWN, "not wired") },
     private val noteUid: String? = null,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : ViewModel() {
@@ -67,6 +69,7 @@ class EditViewModel @VisibleForTesting internal constructor(
         createSingleNote = { body -> singleNoteRepo.create(body) },
         updateSingleNote = { uid, body -> singleNoteRepo.update(uid, body) },
         loadSingleNote = { uid -> singleNoteRepo.get(uid) },
+        deleteSingleNote = { uid -> singleNoteRepo.delete(uid) },
         noteUid = noteUid,
     )
 
@@ -86,7 +89,7 @@ class EditViewModel @VisibleForTesting internal constructor(
             "the 4-deps primary constructor (see EditViewModelSingleNoteTest). " +
             "Do NOT use in new tests — the `appendToday` assertion semantic " +
             "here actually exercises the create-single-note path via a fake " +
-            "adapter. Targeted for removal in P6.2.",
+            "adapter. Targeted for removal in P8.1.",
     )
     internal constructor(
         appendToday: AppendToday,
@@ -316,6 +319,24 @@ class EditViewModel @VisibleForTesting internal constructor(
     /** Reset to Idle after the UI has consumed a terminal state. */
     fun reset() {
         _state.value = SaveState.Idle
+    }
+
+    /**
+     * Fix-6 (Bug-1 C4): delete the currently-loaded single-note and fire
+     * [onDone] so EditActivity can finish(). No-op when the VM is in new-note
+     * mode ([noteUid] == null) — there's nothing on disk yet. Errors are
+     * swallowed here because SingleNoteRepository already surfaces them via
+     * SyncStatusBus; the UI flow just needs to return to the list.
+     */
+    fun delete(onDone: () -> Unit) {
+        val uid = noteUid ?: run {
+            onDone()
+            return
+        }
+        viewModelScope.launch {
+            deleteSingleNote(uid)
+            onDone()
+        }
     }
 
     private fun humanMessage(code: ErrorCode, fallback: String): String = when (code) {

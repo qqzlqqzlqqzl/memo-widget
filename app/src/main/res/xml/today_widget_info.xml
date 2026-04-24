@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  TodayWidget provider metadata.
+
+  【Fix-1 / C3 修复】updatePeriodMillis 从 1800000 (30min) 改成 0。
+  理由与 memo_widget_info.xml 保持一致：P8 完全依赖 WidgetRefresher 的
+  "写路径 → 自推 updateAll" 机制，不再需要 AppWidgetManager 的 30 分钟 tick。
+  旧的 30 分钟周期会在已经被 WidgetRefresher 刷过之后又多发一次
+  provideGlance（里面 withTimeoutOrNull(2s) { eventRepo.observeBetween(...).first() }
+  会真去订阅 Room Flow 2 秒），对电池 / Room 是双倍压力。Agent 2 的
+  WidgetRefresher KDoc 明确写了"完全不再依赖 updatePeriodMillis 的 30 分钟
+  tick"，TodayWidget 现在与该承诺一致。
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/today_widget_description"
     android:initialLayout="@layout/glance_default_loading_layout"
@@ -11,5 +23,5 @@
     android:maxResizeWidth="320dp"
     android:maxResizeHeight="250dp"
     android:resizeMode="horizontal|vertical"
-    android:updatePeriodMillis="1800000"
+    android:updatePeriodMillis="0"
     android:widgetCategory="home_screen" />

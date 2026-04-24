@@ -15,10 +15,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,7 +74,10 @@ fun HelpScreen(
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
+            // Fix-7 #5 (UI-A report): Help is a scroll-heavy content page, a
+            // 140dp hero title just eats room that belongs to the guide text.
+            // Standard TopAppBar keeps the back button + title legible.
+            TopAppBar(
                 title = { Text("使用说明书") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

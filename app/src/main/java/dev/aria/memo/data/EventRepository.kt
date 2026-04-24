@@ -5,6 +5,7 @@ import dev.aria.memo.data.ics.IcsCodec
 import dev.aria.memo.data.local.EventDao
 import dev.aria.memo.data.local.EventEntity
 import dev.aria.memo.data.sync.SyncScheduler
+import dev.aria.memo.data.widget.WidgetRefresher
 import dev.aria.memo.notify.AlarmScheduler
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
@@ -62,6 +63,9 @@ class EventRepository(
         SyncScheduler.enqueuePush(appContext)
         // M4 fix: alarm scheduling must not tear down a successful event write.
         runCatching { AlarmScheduler.scheduleForEvent(appContext, entity) }
+        // P8 widget 自推：TodayWidget 显示今天的 events + memos，event CRUD 后
+        // 必须让 widget 立刻反映新事件（见 TodayWidget.provideGlance）。
+        WidgetRefresher.refreshAll(appContext)
         return MemoResult.Ok(entity)
     }
 
@@ -86,6 +90,8 @@ class EventRepository(
         dao.upsert(updated)
         SyncScheduler.enqueuePush(appContext)
         runCatching { AlarmScheduler.scheduleForEvent(appContext, updated) }
+        // P8 widget 自推。
+        WidgetRefresher.refreshAll(appContext)
         return MemoResult.Ok(updated)
     }
 
@@ -93,6 +99,8 @@ class EventRepository(
         dao.tombstone(uid, System.currentTimeMillis())
         SyncScheduler.enqueuePush(appContext)
         runCatching { AlarmScheduler.cancelForUid(appContext, uid) }
+        // P8 widget 自推：event 删除后 TodayWidget 也要刷新。
+        WidgetRefresher.refreshAll(appContext)
         return MemoResult.Ok(Unit)
     }
 

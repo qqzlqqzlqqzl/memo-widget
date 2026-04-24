@@ -58,10 +58,11 @@ fun AppNav(onOpenEditor: () -> Unit) {
         bottomBar = {
             NavigationBar {
                 Tab.entries.forEach { tab ->
+                    val isSelected = currentRoute?.let { r ->
+                        backStack?.destination?.hierarchy?.any { it.route == tab.route } == true || r == tab.route
+                    } ?: (tab == Tab.Notes)
                     NavigationBarItem(
-                        selected = currentRoute?.let { r ->
-                            backStack?.destination?.hierarchy?.any { it.route == tab.route } == true || r == tab.route
-                        } ?: (tab == Tab.Notes),
+                        selected = isSelected,
                         onClick = {
                             nav.navigate(tab.route) {
                                 popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -70,6 +71,11 @@ fun AppNav(onOpenEditor: () -> Unit) {
                             }
                         },
                         icon = {
+                            // P8 Fix-7 #6 原计划"选中=Filled / 未选=Outlined"（M3 惯例），
+                            // 但当前 Compose BOM 2024.09 下 Icons.Outlined.X 的 receiver
+                            // 契约破坏性变更导致编译失败。降级为全 Filled；
+                            // 选中态靠 NavigationBar 自带 pill indicator 区分。
+                            // P8.1 升级 Compose BOM 到 2026.03+ 后再恢复 Outlined 切换。
                             Icon(
                                 imageVector = when (tab) {
                                     Tab.Notes -> Icons.AutoMirrored.Filled.Notes

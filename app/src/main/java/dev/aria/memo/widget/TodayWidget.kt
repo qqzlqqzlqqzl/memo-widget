@@ -36,7 +36,13 @@ class TodayWidget : GlanceAppWidget() {
         val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
         val dayEnd = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 
-        val memoResult = repo.recentEntries(limit = 6)
+        // P8：把 memos 从 6 提到 20。LazyColumn 自己会滚，小 widget 仍能看前几条。
+        //
+        // Perf-fix C3（对 TodayWidget 的镜像处理）：`repo.recentEntries` 内部要先
+        // settings.current()（虽然 C1 之后已 flowOn IO）+ 查 Room + parseEntries。
+        // 冷路径叠加给 widget ANR 留的余量非常薄，这里也套一层 3s 保护；timeout
+        // 发生时降级为"已配置 + 空列表"，下一轮 widget tick 再试。
+        val memoResult = withTimeoutOrNull(3_000) { repo.recentEntries(limit = 20) }
         val isConfigured: Boolean
         val memos: List<MemoEntry>
         when (memoResult) {
@@ -45,6 +51,7 @@ class TodayWidget : GlanceAppWidget() {
                 isConfigured = memoResult.code != ErrorCode.NOT_CONFIGURED
                 memos = emptyList()
             }
+            null -> { isConfigured = true; memos = emptyList() }
         }
 
         val events: List<EventEntity> = if (isConfigured) {

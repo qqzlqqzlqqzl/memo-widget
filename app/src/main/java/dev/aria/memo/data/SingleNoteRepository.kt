@@ -9,6 +9,7 @@ import dev.aria.memo.data.sync.PathLocker
 import dev.aria.memo.data.sync.SyncScheduler
 import dev.aria.memo.data.sync.SyncStatus
 import dev.aria.memo.data.sync.SyncStatusBus
+import dev.aria.memo.data.widget.WidgetRefresher
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -74,7 +75,7 @@ open class SingleNoteRepository(
         )
         // Fixes #40 (P6.1): serialise the upsert against any in-flight
         // PushWorker on the same filePath.
-        return PathLocker.withLock(entity.filePath) {
+        val result = PathLocker.withLock(entity.filePath) {
             // Fixes #57 (P6.1.1): write to Room FIRST, even when PAT is not
             // configured. Otherwise a first-install user tapping "+" before
             // configuring GitHub would silently lose the body. The row stays
@@ -99,6 +100,13 @@ open class SingleNoteRepository(
                 MemoResult.Ok(entity)
             }
         }
+        // P8 widget 自推：create 的两条路径（已配置/未配置）都 upsert 了 Room 且
+        // 都返回 MemoResult.Ok，widget 必须立刻反映。特别是 #57 fix 之后的
+        // NOT_CONFIGURED→Ok 路径：用户从未配置 → 配置 PAT 后，widget 要能从
+        // prompt 态切到笔记列表。这里无需判 result 类型 —— create 的设计里，
+        // dao.upsert 永远先于 return，能走到这一行就说明 Room 已经变了。
+        WidgetRefresher.refreshAll(appContext)
+        return result
     }
 
     /**
@@ -111,7 +119,7 @@ open class SingleNoteRepository(
         val existing = dao.get(uid)
             ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
         // Fixes #40 (P6.1): same PathLocker guard as create/delete.
-        return PathLocker.withLock(existing.filePath) {
+        val result = PathLocker.withLock(existing.filePath) {
             val updated = existing.copy(
                 body = body,
                 title = extractTitle(body),
@@ -122,6 +130,9 @@ open class SingleNoteRepository(
             SyncScheduler.enqueuePush(appContext)
             MemoResult.Ok(updated)
         }
+        // P8 widget 自推：body/title 改动会影响 widget 列表显示。
+        WidgetRefresher.refreshAll(appContext)
+        return result
     }
 
     /** Soft-delete so the push worker can drive a remote DELETE. */
@@ -129,11 +140,14 @@ open class SingleNoteRepository(
         val existing = dao.get(uid)
             ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
         // Fixes #40 (P6.1).
-        return PathLocker.withLock(existing.filePath) {
+        val result = PathLocker.withLock(existing.filePath) {
             dao.tombstone(existing.uid, System.currentTimeMillis())
             SyncScheduler.enqueuePush(appContext)
             MemoResult.Ok(Unit)
         }
+        // P8 widget 自推：tombstone 后 widget 查询会自动过滤掉此条，必须立刻刷新。
+        WidgetRefresher.refreshAll(appContext)
+        return result
     }
 
     /**
@@ -148,7 +162,7 @@ open class SingleNoteRepository(
         val existing = dao.get(uid)
             ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
         // Fixes #40 (P6.1).
-        return PathLocker.withLock(existing.filePath) {
+        val result = PathLocker.withLock(existing.filePath) {
             val newBody = FrontMatterCodec.applyPin(existing.body, pinned)
             dao.togglePin(
                 uid = existing.uid,
@@ -159,6 +173,10 @@ open class SingleNoteRepository(
             SyncScheduler.enqueuePush(appContext)
             MemoResult.Ok(existing.copy(isPinned = pinned, body = newBody))
         }
+        // P8 widget 自推：pin 状态影响排序（置顶条目前置📌图标 + 顶到最前），
+        // 任何 pin toggle 都要 widget 立刻响应。
+        WidgetRefresher.refreshAll(appContext)
+        return result
     }
 
     /**
@@ -218,7 +236,14 @@ open class SingleNoteRepository(
             // Zero out seconds/nanos — the filename component is HHMM, and we
             // don't want to leak unused precision to the DB either.
             val time = now.toLocalTime().withNano(0).withSecond(0)
-            val slug = NoteSlugger.slugOf(body)
+            // Data-1 R11 fix: empty / whitespace-only bodies produce
+            // `note` as their slug — two blank notes created within the
+            // same minute would collide on `<date>-<HHMM>-note.md` and
+            // the UNIQUE index would silently overwrite the first body.
+            // [NoteSlugger.uniqueSlugOf] falls back to `note-<5 digits>`
+            // for the blank-body case only; non-blank bodies see the
+            // same slug as before.
+            val slug = NoteSlugger.uniqueSlugOf(body)
             val fileName = "${formatDate(date)}-${formatTime(time)}-$slug.md"
             return SingleNoteEntity(
                 uid = uid,

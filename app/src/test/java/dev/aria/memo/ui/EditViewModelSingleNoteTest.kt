@@ -340,6 +340,60 @@ class EditViewModelSingleNoteTest {
 
     // --- P6.1 zombie uid regression (fixes #50) ----------------------------
 
+    // --- Fix-6 (Bug-1 C4) delete wiring ------------------------------------
+
+    @Test
+    fun `edit-mode delete invokes deleteSingleNote with the right uid and fires onDone`() = runTest {
+        val deleteCalls = mutableListOf<String>()
+        val loaded = entity(uid = "to-kill", body = "will be deleted")
+        val vm = EditViewModel(
+            appendToday = { MemoResult.Ok(Unit) },
+            toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
+            createSingleNote = { MemoResult.Err(ErrorCode.UNKNOWN, "n/a") },
+            updateSingleNote = { _, _ -> MemoResult.Err(ErrorCode.UNKNOWN, "n/a") },
+            loadSingleNote = { loaded },
+            deleteSingleNote = { uid ->
+                deleteCalls.add(uid)
+                MemoResult.Ok(Unit)
+            },
+            noteUid = "to-kill",
+        )
+
+        var doneFired = 0
+        vm.delete { doneFired++ }
+
+        assertEquals(1, deleteCalls.size)
+        assertEquals("to-kill", deleteCalls[0])
+        assertEquals("onDone must fire once after repo returns", 1, doneFired)
+    }
+
+    @Test
+    fun `new-note mode delete is a no-op that still fires onDone`() = runTest {
+        // No uid means nothing has been persisted yet — delete should short
+        // circuit so the UI can still exit cleanly. We assert the repo wasn't
+        // touched so a widget deep-link that somehow lands here can't wipe
+        // an unrelated row.
+        val deleteCalls = AtomicInteger(0)
+        val vm = EditViewModel(
+            appendToday = { MemoResult.Ok(Unit) },
+            toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
+            createSingleNote = { MemoResult.Ok(entity("x", it)) },
+            updateSingleNote = { _, _ -> MemoResult.Err(ErrorCode.UNKNOWN, "n/a") },
+            loadSingleNote = { null },
+            deleteSingleNote = {
+                deleteCalls.incrementAndGet()
+                MemoResult.Ok(Unit)
+            },
+            noteUid = null,
+        )
+
+        var doneFired = 0
+        vm.delete { doneFired++ }
+
+        assertEquals("new-note mode must not hit the repo", 0, deleteCalls.get())
+        assertEquals("onDone still fires so UI can finish()", 1, doneFired)
+    }
+
     @Test
     fun `zombie uid save attempts update and surfaces Err NOT_FOUND`() = runTest {
         // Sanity guard for the uninstall-reinstall deep-link scenario: user

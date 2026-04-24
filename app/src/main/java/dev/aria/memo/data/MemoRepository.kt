@@ -1,11 +1,14 @@
 package dev.aria.memo.data
 
 import android.content.Context
+import androidx.room.withTransaction
+import dev.aria.memo.data.local.AppDatabase
 import dev.aria.memo.data.local.NoteDao
 import dev.aria.memo.data.local.NoteFileEntity
 import dev.aria.memo.data.notes.FrontMatterCodec
 import dev.aria.memo.data.sync.PathLocker
 import dev.aria.memo.data.sync.SyncScheduler
+import dev.aria.memo.data.widget.WidgetRefresher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
@@ -75,26 +78,34 @@ open class MemoRepository(
 
         // Fixes #6: hold the per-path lock across read-merge-write-push so a
         // parallel PushWorker cannot race us on the same SHA.
-        return PathLocker.withLock(path) {
-            // 1. Local-first: merge the new entry into whatever we have cached.
-            val existing = dao.get(path)
-            val newContent = buildNewContent(existing?.content, date, time, body)
+        val result = PathLocker.withLock(path) {
             val nowMs = System.currentTimeMillis()
-            dao.upsert(
-                NoteFileEntity(
-                    path = path,
-                    date = date,
-                    content = newContent,
-                    githubSha = existing?.githubSha,
-                    localUpdatedAt = nowMs,
-                    remoteUpdatedAt = existing?.remoteUpdatedAt,
-                    dirty = true,
+            // Data-1 R12 fix: wrap the read-then-upsert in a Room transaction
+            // so a process kill mid-sequence cannot leave a partially-written
+            // row. `newContent` and `existingSha` are captured here to be
+            // visible outside the transactional block below (the subsequent
+            // network push must stay OUT of the txn so we don't hold the DB
+            // lock for 10+ seconds while Ktor waits on GitHub).
+            val (newContent, existingSha) = runInTx {
+                val existing = dao.get(path)
+                val merged = buildNewContent(existing?.content, date, time, body)
+                dao.upsert(
+                    NoteFileEntity(
+                        path = path,
+                        date = date,
+                        content = merged,
+                        githubSha = existing?.githubSha,
+                        localUpdatedAt = nowMs,
+                        remoteUpdatedAt = existing?.remoteUpdatedAt,
+                        dirty = true,
+                    )
                 )
-            )
+                merged to existing?.githubSha
+            }
 
             // 2. Best-effort synchronous push. Whatever the outcome, enqueue
             //    the background worker so a stuck dirty row always has a retry.
-            val pushResult = pushFile(config, path, newContent, existing?.githubSha)
+            val pushResult = pushFile(config, path, newContent, existingSha)
             when (pushResult) {
                 is MemoResult.Ok -> {
                     dao.markClean(path, pushResult.value, nowMs)
@@ -109,6 +120,14 @@ open class MemoRepository(
                 }
             }
         }
+        // P8 widget 自推：只要 Room 写入成功（即使最终返回 Ok-with-queued-push），
+        // widget 显示的内容就已经变了。NETWORK/CONFLICT 降级成 Ok 的分支也必须刷新，
+        // 因为对用户而言"保存成功"了。只有真实 Err（比如 NOT_CONFIGURED）才跳过 —
+        // 那种情况 Room 根本没 upsert。
+        if (result is MemoResult.Ok) {
+            WidgetRefresher.refreshAll(appContext)
+        }
+        return result
     }
 
     suspend fun recentEntries(limit: Int = 3): MemoResult<List<MemoEntry>> {
@@ -129,6 +148,38 @@ open class MemoRepository(
     fun kickPendingPush() = SyncScheduler.enqueuePush(appContext)
 
     // --- internals ---------------------------------------------------------
+
+    /**
+     * Data-1 R12/R13 helper: run [block] inside a Room transaction when the
+     * live [AppDatabase] is reachable (production path). In unit-test fakes
+     * that skip [ServiceLocator.init] the db is unreachable, so we just run
+     * [block] directly — tests already operate without durability semantics.
+     *
+     * Suspended so callers can mix in their own `suspend` DAO calls. Room's
+     * `withTransaction` guarantees:
+     *  - atomic commit when [block] returns normally, or
+     *  - rollback of every write performed inside [block] if [block] throws
+     *    or the process is killed mid-transaction.
+     *
+     * Keep the network I/O OUT of [block] — holding a Room transaction across
+     * a Ktor request would block the SQLite writer thread for seconds.
+     */
+    private suspend fun <T> runInTx(block: suspend () -> T): T {
+        val db = AppDatabase.instance()
+        return if (db != null) db.withTransaction(block) else block()
+    }
+
+    /**
+     * Return type for the transactional prep step inside [toggleTodoLine].
+     * Lets the txn block bail out with a typed error without having to abuse
+     * `Any` or throw exceptions (Room's `withTransaction` commits the txn
+     * when the block returns normally, so throwing for flow-control would
+     * roll back the otherwise-successful upsert).
+     */
+    private sealed interface TogglePrep {
+        data class Ok(val newContent: String, val existingSha: String?) : TogglePrep
+        data class Fail(val err: MemoResult.Err) : TogglePrep
+    }
 
     private suspend fun pushFile(
         config: AppConfig,
@@ -163,11 +214,19 @@ open class MemoRepository(
         body: String,
     ): String {
         val hhmm = HHMM.format(time)
-        val trimmedBody = body.trimEnd()
-        return if (existing.isNullOrBlank()) {
+        // Data-1 R8 fix: normalize line endings to LF **before** splicing.
+        // A pulled-down day-file may carry CRLF (Windows peer wrote it), and
+        // `parseEntries`'s regex anchors `^## \d\d:\d\d` at a LF — mixed
+        // line endings left residual `\r` bytes on the heading line and
+        // silently dropped widget rows. Normalising both the cached content
+        // and the incoming body keeps the whole file on one convention.
+        val normalizedExisting = existing?.replace("\r\n", "\n")?.replace("\r", "\n")
+        val normalizedBody = body.replace("\r\n", "\n").replace("\r", "\n")
+        val trimmedBody = normalizedBody.trimEnd()
+        return if (normalizedExisting.isNullOrBlank()) {
             "# ${date}\n\n## ${hhmm}\n${trimmedBody}\n"
         } else {
-            val base = existing.trimEnd('\n')
+            val base = normalizedExisting.trimEnd('\n')
             "${base}\n\n## ${hhmm}\n${trimmedBody}\n"
         }
     }
@@ -179,16 +238,27 @@ open class MemoRepository(
      */
     suspend fun togglePin(path: String, pinned: Boolean) {
         PathLocker.withLock(path) {
-            val existing = dao.get(path) ?: return@withLock
-            val newContent = applyPinFrontMatter(existing.content, pinned)
-            dao.togglePin(
-                path = path,
-                pinned = pinned,
-                content = newContent,
-                updatedAt = System.currentTimeMillis(),
-            )
+            // Data-1 R12 fix: the read-modify-write of the pin flag and the
+            // content column must be atomic. Without `withTransaction`, a
+            // process kill between `dao.get` and `dao.togglePin` leaves the
+            // new content-byte pattern half-written (the flag bit set but
+            // the body still old), which then pushes a stale body to GitHub
+            // on next sync.
+            runInTx {
+                val existing = dao.get(path) ?: return@runInTx
+                val newContent = applyPinFrontMatter(existing.content, pinned)
+                dao.togglePin(
+                    path = path,
+                    pinned = pinned,
+                    content = newContent,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            }
             SyncScheduler.enqueuePush(appContext)
         }
+        // P8 widget 自推：pin 变化会影响 widget 列表顺序（置顶条目上浮）。
+        // 放 withLock 外 —— refresh 不需要锁；放里面反而多占锁时间。
+        WidgetRefresher.refreshAll(appContext)
     }
 
     companion object {
@@ -322,44 +392,59 @@ open class MemoRepository(
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "PAT/owner/repo missing")
         }
-        return PathLocker.withLock(path) {
-            val existing = dao.get(path)
-                ?: return@withLock MemoResult.Err(ErrorCode.NOT_FOUND, "note not in cache: $path")
-            val lines = existing.content.split("\n").toMutableList()
-            if (lineIndex !in lines.indices) {
-                return@withLock MemoResult.Err(
-                    ErrorCode.CONFLICT,
-                    "line index out of range after refresh: $lineIndex",
-                )
-            }
-            val original = lines[lineIndex]
-            if (original != expectedRawLine) {
-                return@withLock MemoResult.Err(
-                    ErrorCode.CONFLICT,
-                    "line changed since render",
-                )
-            }
-            val match = TOGGLE_LINE_REGEX.matchEntire(original)
-                ?: return@withLock MemoResult.Err(
-                    ErrorCode.UNKNOWN,
-                    "line $lineIndex is not a checklist line",
-                )
-            val indent = match.groupValues[1]
-            val text = match.groupValues[3]
-            val mark = if (newChecked) "x" else " "
-            lines[lineIndex] = "$indent- [$mark] $text"
-            val newContent = lines.joinToString("\n")
-
+        val result = PathLocker.withLock(path) {
             val nowMs = System.currentTimeMillis()
-            dao.upsert(
-                existing.copy(
-                    content = newContent,
-                    localUpdatedAt = nowMs,
-                    dirty = true,
+            // Data-1 R12 fix: wrap the guard + read + line rewrite + upsert
+            // in a single Room transaction. Without this, the upsert of a
+            // surgically-mutated body can be interrupted right before it
+            // commits, leaving the row dirty with pre-edit content and the
+            // next push shipping the old state to GitHub. Network push
+            // stays outside the txn (see `runInTx` contract).
+            val prep: TogglePrep = runInTx {
+                val existing = dao.get(path)
+                    ?: return@runInTx TogglePrep.Fail(
+                        MemoResult.Err(ErrorCode.NOT_FOUND, "note not in cache: $path")
+                    )
+                val lines = existing.content.split("\n").toMutableList()
+                if (lineIndex !in lines.indices) {
+                    return@runInTx TogglePrep.Fail(
+                        MemoResult.Err(
+                            ErrorCode.CONFLICT,
+                            "line index out of range after refresh: $lineIndex",
+                        )
+                    )
+                }
+                val original = lines[lineIndex]
+                if (original != expectedRawLine) {
+                    return@runInTx TogglePrep.Fail(
+                        MemoResult.Err(ErrorCode.CONFLICT, "line changed since render")
+                    )
+                }
+                val match = TOGGLE_LINE_REGEX.matchEntire(original)
+                    ?: return@runInTx TogglePrep.Fail(
+                        MemoResult.Err(
+                            ErrorCode.UNKNOWN,
+                            "line $lineIndex is not a checklist line",
+                        )
+                    )
+                val indent = match.groupValues[1]
+                val text = match.groupValues[3]
+                val mark = if (newChecked) "x" else " "
+                lines[lineIndex] = "$indent- [$mark] $text"
+                val merged = lines.joinToString("\n")
+                dao.upsert(
+                    existing.copy(
+                        content = merged,
+                        localUpdatedAt = nowMs,
+                        dirty = true,
+                    )
                 )
-            )
+                TogglePrep.Ok(merged, existing.githubSha)
+            }
+            if (prep is TogglePrep.Fail) return@withLock prep.err
+            val (newContent, existingSha) = prep as TogglePrep.Ok
 
-            val pushResult = pushFile(config, path, newContent, existing.githubSha)
+            val pushResult = pushFile(config, path, newContent, existingSha)
             when (pushResult) {
                 is MemoResult.Ok -> {
                     dao.markClean(path, pushResult.value, nowMs)
@@ -374,6 +459,12 @@ open class MemoRepository(
                 }
             }
         }
+        // P8 widget 自推：只要 Room 被改过（Ok 或降级成 Ok 的分支），widget 要刷新。
+        // 失败分支（NOT_FOUND / CONFLICT-stale / UNKNOWN）Room 没 upsert，跳过。
+        if (result is MemoResult.Ok) {
+            WidgetRefresher.refreshAll(appContext)
+        }
+        return result
     }
 
     // --- cross-day recent feed ---------------------------------------------

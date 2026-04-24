@@ -32,6 +32,26 @@ object NoteSlugger {
     const val DEFAULT_SLUG = "note"
 
     /**
+     * Data-1 R11 fix: produce a collision-resistant slug. When [slugOf]
+     * falls back to [DEFAULT_SLUG] (blank body), two rapid-fire creates
+     * within the same minute would share a filename `…-HHMM-note.md` and
+     * the UNIQUE index on `filePath` would upsert-overwrite the first
+     * body. Callers that build filenames should use this helper so empty
+     * bodies get a random numeric suffix instead.
+     *
+     * For non-empty bodies this returns exactly [slugOf]'s output — no
+     * behaviour change for the common path.
+     */
+    fun uniqueSlugOf(body: String, rng: java.util.Random = java.util.Random()): String {
+        val base = slugOf(body)
+        if (base != DEFAULT_SLUG) return base
+        // 5 digits gives ~1/100k collision probability per minute, and
+        // the UNIQUE index + PathLocker still catch any stragglers.
+        val suffix = 10_000 + rng.nextInt(90_000)
+        return "$DEFAULT_SLUG-$suffix"
+    }
+
+    /**
      * Return a filename-safe slug derived from the first non-blank line of
      * [body]. Never returns an empty string — falls back to [DEFAULT_SLUG].
      */

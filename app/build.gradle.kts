@@ -8,14 +8,14 @@ plugins {
 
 android {
     namespace = "dev.aria.memo"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.aria.memo"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 12
-        versionName = "0.11.0-p7"
+        targetSdk = 36
+        versionCode = 14
+        versionName = "0.12.1-p8"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -131,12 +131,10 @@ dependencies {
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)
-    implementation(libs.ktor.client.logging)
     implementation(libs.ktor.serialization.kotlinx.json)
 
     // kotlinx
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.kotlinx.datetime)
     implementation(libs.kotlinx.coroutines.android)
 
     // Test

@@ -14,13 +14,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -252,9 +253,12 @@ private fun DayCell(
         modifier = Modifier
             .aspectRatio(1f)
             .padding(MemoSpacing.xs)
-            .clip(
-                if (isToday || selected) CircleShape else RoundedCornerShape(12.dp),
-            )
+            // Fix-7 #8 (UI-A report): previously today/selected cells were
+            // CircleShape while normal days were 12dp rounded rects, so each
+            // row mixed two different shapes. Matching Google Calendar +
+            // Samsung Calendar, we now render every cell as a circle —
+            // keeps the calendar grid visually consistent.
+            .clip(CircleShape)
             .background(bgColor)
             .clickable(enabled = inMonth) { onClick() },
         contentAlignment = Alignment.Center,
@@ -351,16 +355,31 @@ private fun EventRow(occ: EventOccurrence, onClick: () -> Unit) {
     val start = remember(occ) { Instant.ofEpochMilli(occ.startEpochMs).atZone(zone) }
     val end = remember(occ) { Instant.ofEpochMilli(occ.endEpochMs).atZone(zone) }
     val timeFmt = remember { DateTimeFormatter.ofPattern("HH:mm") }
-    val recurringMark = if (!occ.event.rrule.isNullOrBlank()) " 🔁" else ""
+    val isRecurring = !occ.event.rrule.isNullOrBlank()
     MemoCard(
         accentColor = MaterialTheme.colorScheme.tertiary,
         onClick = onClick,
     ) {
-        Text(
-            text = "${start.format(timeFmt)} – ${end.format(timeFmt)}$recurringMark",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.tertiary,
-        )
+        // Fix-7 #9 (UI-A report): recurring mark was a "🔁" emoji appended
+        // to the time string; now an `Icons.Filled.Repeat` tinted tertiary
+        // sits inline next to the time so the indicator stays in the same
+        // Material iconography as the rest of the app.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "${start.format(timeFmt)} – ${end.format(timeFmt)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            if (isRecurring) {
+                Spacer(Modifier.width(MemoSpacing.xs))
+                Icon(
+                    imageVector = Icons.Filled.Repeat,
+                    contentDescription = "重复事件",
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
         Text(
             text = occ.event.summary,
             style = MaterialTheme.typography.titleMedium,

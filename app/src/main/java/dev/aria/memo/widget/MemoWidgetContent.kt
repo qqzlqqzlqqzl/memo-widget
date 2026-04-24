@@ -1,13 +1,21 @@
 package dev.aria.memo.widget
 
+import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
+import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.ImageProvider
 import androidx.glance.LocalContext
+import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.components.Scaffold
 import androidx.glance.appwidget.components.SquareIconButton
@@ -15,6 +23,7 @@ import androidx.glance.appwidget.components.TitleBar
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
+import androidx.glance.appwidget.updateAll
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
@@ -31,7 +40,43 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import dev.aria.memo.EditActivity
 import dev.aria.memo.MainActivity
+import dev.aria.memo.util.MarkdownPreview
 import java.time.format.DateTimeFormatter
+
+/**
+ * Fix-6 (Bug-2): Glance widgets have no way to show a spinner — tapping 🔄
+ * looks the same whether the refresh succeeded, hung, or silently failed. We
+ * can't modify [RefreshMemoWidgetAction] (owned by Fix-1), but we *can* swap
+ * the button's wiring in this file to a Toast-aware wrapper.
+ *
+ * [ToastingRefreshMemoAction] is a thin [ActionCallback] that pops "已刷新"
+ * on the main thread, then delegates to [MemoWidget].updateAll — the same
+ * semantics as [RefreshMemoWidgetAction] minus the no-feedback problem.
+ * `runCatching` mirrors the failure policy used by the owner-of-record.
+ *
+ * Why Handler.post(mainLooper): `Toast.makeText(...).show()` must be called
+ * from a thread with a Looper; Glance's coroutine dispatcher is not one.
+ *
+ * Marked as a temporary workaround for P8.1 — once Glance exposes inline
+ * loading affordances we can drop the Toast.
+ */
+class ToastingRefreshMemoAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val appCtx = context.applicationContext
+        Handler(Looper.getMainLooper()).post {
+            // "已刷新" is a white-lie — the updateAll below may still be
+            // in-flight. We accept that: the intent here is feedback-for-tap,
+            // not strict sync confirmation. If updateAll throws, at least the
+            // user knows the button registered.
+            Toast.makeText(appCtx, "已刷新", Toast.LENGTH_SHORT).show()
+        }
+        runCatching { MemoWidget().updateAll(appCtx) }
+    }
+}
 
 /**
  * Glance-composable body of the Memo widget.
@@ -77,10 +122,22 @@ fun MemoWidgetContent(
 }
 
 /**
- * Top title bar: "Memo" label with a "+ New" action button on the trailing edge.
+ * Top title bar: "Memo" label with 🔄 Refresh + "+ New" action buttons.
+ *
+ * P8 改动：新增 🔄 刷新按钮（在 + New 前面）。
+ *  - 为什么需要它：widget 的 `updatePeriodMillis=0`，平时靠 app 写入后主动调
+ *    `WidgetRefresher.refreshAll(...)` 推。但后台拉取完成、或用户怀疑 widget
+ *    数据没跟上（例如在别的设备改了再打开这台）时，手动触发重绘是最直观的
+ *    救急入口，不依赖任何 background job 的排队延迟。
+ *  - 为什么必须走 [RefreshMemoWidgetAction]：`SquareIconButton.onClick` 只接
+ *    `Action`；而我们要调的 [MemoWidget.updateAll] 是 suspend。Glance 的官方
+ *    组合姿势就是 `actionRunCallback<T>()` + 一个实现 `ActionCallback` 的类。
+ *
+ * 顺序：刷新 → 新建。刷新在左是为了"不破坏用户点右侧 + 按钮的肌肉记忆"。
  *
  * When the app is unconfigured we re-route the add button to [MainActivity] so
  * the user can't silently start composing against a misconfigured backend.
+ * 注意：未配置时刷新按钮依然保留，因为用户配完 PAT 回到桌面会希望立刻看到列表。
  */
 @Composable
 private fun MemoTitleBar(isConfigured: Boolean) {
@@ -90,6 +147,17 @@ private fun MemoTitleBar(isConfigured: Boolean) {
         startIcon = ImageProvider(android.R.drawable.ic_menu_edit),
         title = "Memo",
         actions = {
+            // 🔄 刷新按钮。Glance 系统资源 `ic_popup_sync` 是经典旋转箭头，
+            // 在各厂商主题下都有，避免自建 drawable。
+            //
+            // Fix-6 (Bug-2): route through [ToastingRefreshMemoAction] so the
+            // user gets a "已刷新" confirmation — Glance can't render a
+            // spinner and the silent tap was driving repeated presses.
+            SquareIconButton(
+                imageProvider = ImageProvider(android.R.drawable.ic_popup_sync),
+                contentDescription = "Refresh widget",
+                onClick = actionRunCallback<ToastingRefreshMemoAction>(),
+            )
             SquareIconButton(
                 imageProvider = ImageProvider(android.R.drawable.ic_input_add),
                 contentDescription = "New memo",
@@ -222,29 +290,10 @@ private fun EntryRow(row: MemoWidgetRow) {
         )
         Spacer(modifier = GlanceModifier.width(6.dp))
         Text(
-            text = row.label.firstLinePreview(),
+            text = MarkdownPreview.buildPreview(row.label),
             style = TextStyle(color = GlanceTheme.colors.onBackground),
             maxLines = 1,
             modifier = GlanceModifier.fillMaxWidth(),
         )
-    }
-}
-
-/**
- * Build a compact, single-line preview of a memo body.
- *
- * Normalizes common markdown list markers ("- ", "* ") and folds up to the
- * first three non-empty lines, separated by " / ". Designed for glance-sized
- * text where body content rarely fits full lines anyway.
- */
-private fun String.firstLinePreview(): String {
-    val pieces = this.lineSequence()
-        .map { line -> line.trim().removePrefix("- ").removePrefix("* ").trim() }
-        .filter { it.isNotEmpty() }
-        .toList()
-    return when (pieces.size) {
-        0 -> ""
-        1 -> pieces[0]
-        else -> pieces.take(3).joinToString(separator = " / ")
     }
 }

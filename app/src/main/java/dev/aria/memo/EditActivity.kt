@@ -1,6 +1,7 @@
 package dev.aria.memo
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -36,6 +37,15 @@ class EditActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Sec-1 / M2 (FLAG_SECURE coverage): note bodies can contain
+        // sensitive content (names, locations, credentials pasted by
+        // mistake). FLAG_SECURE blocks screenshots and hides this window
+        // from the recent-apps thumbnail, closing the multi-task-card leak
+        // that SettingsScreen's PAT-only toggle doesn't cover.
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE,
+        )
 
         val uid = intent?.getStringExtra(EXTRA_NOTE_UID)
         if (uid.isNullOrBlank()) {
@@ -47,6 +57,10 @@ class EditActivity : ComponentActivity() {
             viewModel.prime(extraPath, extraBody)
         }
 
+        // Fix-6 (Bug-1 C4): only expose the delete overflow when editing an
+        // existing single-note. New-note mode (no uid) has nothing to delete
+        // yet — back-press is the escape hatch for that flow.
+        val editingUid = uid
         setContent {
             MemoTheme {
                 EditScreen(
@@ -58,6 +72,13 @@ class EditActivity : ComponentActivity() {
                     // save that's been swallowed by the ViewModel's dedup.
                     onSaved = { if (!isFinishing) finish() },
                     onBack = { if (!isFinishing) finish() },
+                    onDelete = if (!editingUid.isNullOrBlank()) {
+                        {
+                            viewModel.delete(onDone = {
+                                if (!isFinishing) finish()
+                            })
+                        }
+                    } else null,
                 )
             }
         }

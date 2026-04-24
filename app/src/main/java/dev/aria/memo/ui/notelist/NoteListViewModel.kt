@@ -188,6 +188,20 @@ class NoteListViewModel(
         }
     }
 
+    /**
+     * Fix-6 (Bug-1 C4): delete a single-note by uid. Bridges the UI long-press
+     * "🗑 删除" menu to [SingleNoteRepository.delete], which tombstones the row
+     * locally and relies on PushWorker to DELETE it from GitHub on the next
+     * push cycle. Errors are swallowed here — the repository already surfaces
+     * NOT_FOUND etc. via SyncStatusBus when appropriate, and the UI shows a
+     * simple "已删除" snackbar from the screen layer.
+     */
+    fun delete(uid: String) {
+        viewModelScope.launch {
+            singleNoteRepo.delete(uid)
+        }
+    }
+
     companion object {
         /**
          * Sort: pinned first; within each bucket, newest (date,time) first.

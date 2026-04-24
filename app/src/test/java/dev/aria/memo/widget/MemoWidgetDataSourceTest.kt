@@ -187,4 +187,62 @@ class MemoWidgetDataSourceTest {
         assertEquals(false, rows.first)
         assertTrue(rows.second.isEmpty())
     }
+
+    /**
+     * P8 回归：widget 数据源的 limit 从 3 提升到 20。
+     *
+     * 这个 case 证明当 repo 返回 20 条 [SingleNoteEntity] 时，[decideRows] 原封不动
+     * 透传所有 20 行（不是像 P7 那样再 `.take(3)`）—— 因为上游 `observeRecent(limit=20)`
+     * 已经控制了上限，widget 不应再二次截断。
+     *
+     * 万一未来有人把 `decideRows`（或者它模拟的 provideGlance 决策块）
+     * 无意中加回 `.take(3)`，这个测试会立刻失败，保护 P8 的核心用户价值：
+     * "widget resize 到更大的格子就能看到更多笔记"。
+     */
+    @Test
+    fun `P8 limit 20 - when repo yields 20 single notes widget renders all 20 rows`() {
+        val twenty = (1..20).map { idx ->
+            single(
+                uid = "uid-$idx",
+                title = "note-$idx",
+                time = LocalTime.of(0, 0).plusMinutes(idx.toLong()),
+            )
+        }
+        val rows = decideRows(
+            singleNotes = twenty,
+            legacyResult = MemoResult.Err(ErrorCode.UNKNOWN, "must not be used"),
+            settingsConfigured = true,
+        )
+        assertEquals(true, rows.first)
+        assertEquals(
+            "P8：widget 必须展示 repo 给出的全部 20 条；如果这里掉回 3 说明下游偷偷再截断",
+            20,
+            rows.second.size,
+        )
+        // 顺序也要一致（repo 已按 time DESC 排，widget 不改顺序）。
+        assertEquals("note-1", rows.second.first().label)
+        assertEquals("note-20", rows.second.last().label)
+        // 所有 20 行都要带 uid，这样点击能 deep-link。
+        assertTrue(rows.second.all { !it.noteUid.isNullOrBlank() })
+    }
+
+    /**
+     * P8 回归：legacy 路径同样要能承载 20 行。当 SingleNote 空而 legacy Ok 返回 20 条
+     * [DatedMemoEntry] 时，widget 也得完整展示（说明 MemoWidget 里 legacy 那一支
+     * 的 `recentEntriesAcrossDays(limit=...)` 被对齐到了 20）。
+     */
+    @Test
+    fun `P8 limit 20 - legacy fallback also renders 20 rows when single notes empty`() {
+        val legacy = (1..20).map { idx ->
+            legacyDated(body = "legacy-$idx", time = LocalTime.of(0, 0).plusMinutes(idx.toLong()))
+        }
+        val rows = decideRows(
+            singleNotes = emptyList(),
+            legacyResult = MemoResult.Ok(legacy),
+            settingsConfigured = true,
+        )
+        assertEquals(true, rows.first)
+        assertEquals(20, rows.second.size)
+        assertTrue(rows.second.all { it.noteUid == null })
+    }
 }

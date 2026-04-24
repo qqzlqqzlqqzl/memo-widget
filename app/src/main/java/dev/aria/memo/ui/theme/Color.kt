@@ -58,3 +58,26 @@ val MemoDarkError = Color(0xFFFFB4AB)
 val MemoDarkOnError = Color(0xFF690005)
 val MemoDarkErrorContainer = Color(0xFF93000A)
 val MemoDarkOnErrorContainer = Color(0xFFFFDAD6)
+
+// ─────────────────────────────────────────────────────────────────────────
+// Named semantic extensions — referenced from ui/**/*.kt instead of
+// hardcoded `Color(0xFF...)` so dark-mode / dynamic-color themes can
+// respond. Exposed as `MemoThemeColors.<name>` via `@Composable` accessors
+// that reach into `MaterialTheme.colorScheme` wherever possible. A few
+// flavors (notification "warning" amber) stay fixed because the M3 default
+// scheme has no semantic slot for them.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Warm amber used for "heads-up / notifications off" cards. Darkens slightly
+ * in light mode and brightens in dark mode so the accent bar reads on both.
+ */
+val MemoLightWarning = Color(0xFFB8860B)
+val MemoDarkWarning = Color(0xFFE6B24A)
+
+/**
+ * Inline-code background tint (markdown). Uses low-alpha onSurface-ish grey
+ * so it works against either surface tonal palette.
+ */
+val MemoLightInlineCodeBg = Color(0x22808080)
+val MemoDarkInlineCodeBg = Color(0x33B0B0B0)

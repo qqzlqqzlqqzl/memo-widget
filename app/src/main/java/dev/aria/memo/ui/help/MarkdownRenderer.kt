@@ -272,7 +272,11 @@ private fun HeadingText(level: Int, text: String) {
 
 @Composable
 private fun InlineText(text: String) {
-    val annotated = buildInlineAnnotatedString(text)
+    // Fix-7 #1: pipe theme-resolved link + code-bg colors into the
+    // non-composable annotator so dark mode / dynamic color respond.
+    val linkColor = MaterialTheme.colorScheme.primary
+    val codeBg = dev.aria.memo.ui.theme.MemoThemeColors.inlineCodeBg
+    val annotated = buildInlineAnnotatedString(text, linkColor, codeBg)
     val ctx = LocalContext.current
     if (annotated.getStringAnnotations("URL", 0, annotated.length).isEmpty()) {
         Text(
@@ -407,7 +411,12 @@ private fun TableBox(rows: List<List<String>>) {
                             .weight(1f)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                     ) {
-                        val annotated = buildInlineAnnotatedString(cell)
+                        // Fix-7 #1: themed link + code-bg colors.
+                        val annotated = buildInlineAnnotatedString(
+                            cell,
+                            MaterialTheme.colorScheme.primary,
+                            dev.aria.memo.ui.theme.MemoThemeColors.inlineCodeBg,
+                        )
                         Text(
                             text = annotated,
                             style = MaterialTheme.typography.bodySmall.copy(
@@ -485,8 +494,19 @@ private fun extractBullet(raw: String): Pair<String, String> {
  *
  * Only the set of constructs present in USER_GUIDE.md is handled — the goal is
  * "render the guide readably", not "parse arbitrary markdown".
+ *
+ * Fix-7 #1 (UI-A report): `linkColor` / `codeBgColor` are now parameters
+ * instead of hardcoded `Color(0xFF1976D2)` / `Color(0x22808080)`. Callers in
+ * `@Composable` code pass `MaterialTheme.colorScheme.primary` and
+ * `MemoThemeColors.inlineCodeBg` so dark mode / dynamic color can respond.
+ * Defaults preserve the original values for non-composable call sites (unit
+ * tests) that don't care about palette.
  */
-internal fun buildInlineAnnotatedString(raw: String): AnnotatedString = buildAnnotatedString {
+internal fun buildInlineAnnotatedString(
+    raw: String,
+    linkColor: Color = Color(0xFF1976D2),
+    codeBgColor: Color = Color(0x22808080),
+): AnnotatedString = buildAnnotatedString {
     // Strip zero-width characters that sometimes sneak into anchors.
     var remaining = raw
     while (remaining.isNotEmpty()) {
@@ -518,7 +538,7 @@ internal fun buildInlineAnnotatedString(raw: String): AnnotatedString = buildAnn
                 val start = length
                 withStyle(
                     SpanStyle(
-                        color = Color(0xFF1976D2),
+                        color = linkColor,
                         textDecoration = TextDecoration.Underline,
                     )
                 ) {
@@ -532,7 +552,7 @@ internal fun buildInlineAnnotatedString(raw: String): AnnotatedString = buildAnn
                 withStyle(
                     SpanStyle(
                         fontFamily = FontFamily.Monospace,
-                        background = Color(0x22808080),
+                        background = codeBgColor,
                     )
                 ) {
                     append(m.groupValues[1])

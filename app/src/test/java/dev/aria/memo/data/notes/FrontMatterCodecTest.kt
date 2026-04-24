@@ -223,11 +223,13 @@ class FrontMatterCodecTest {
     }
 
     @Test
-    fun `strip with mixed non-ASCII key plus strict pinned removes the block`() {
-        // 既有中文键（`作者`）又有 `pinned: true`，当前语义：整块被当 pin block
-        // 剥离（`作者` 也跟着消失）。这是 P6 简化策略——pin-only 和 "pin + 其他"
-        // 都吃；用户若要保留非 pin 的中文键，不要同时写 pinned。
+    fun `strip preserves non-pin YAML keys while removing pinned line`() {
+        // R4 (Fix-4 P8): strip 现在只移除 `pinned:` 行，保留用户自定义 YAML 键。
+        // 之前的 P6 语义"pin + 其他字段整块吃"会丢失用户数据，P8 修正。
         val mixed = "---\n作者: alice\npinned: true\n---\n正文"
-        assertEquals("正文", FrontMatterCodec.strip(mixed))
+        val result = FrontMatterCodec.strip(mixed)
+        assertTrue("expected 作者 to survive, got: $result", result.contains("作者: alice"))
+        assertTrue("pinned line must be removed, got: $result", !result.contains("pinned"))
+        assertTrue("body must survive, got: $result", result.contains("正文"))
     }
 }

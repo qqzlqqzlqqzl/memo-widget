@@ -52,11 +52,16 @@ fun MemoCard(
 
     Card(
         shape = MemoShapes.card,
+        // Fix-7 #2 (UI-A report): bumped from `surfaceContainerLow` + 0dp to
+        // `surfaceContainer` + 1dp tonal elevation so cards sit visibly above
+        // the Scaffold surface on both light (subtle shadow) and dark
+        // (tonal-elevation color shift) themes, instead of bleeding into the
+        // background as one flat plane.
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = cardModifier,
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {

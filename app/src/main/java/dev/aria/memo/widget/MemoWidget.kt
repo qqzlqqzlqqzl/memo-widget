@@ -11,20 +11,28 @@ import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.local.SingleNoteEntity
+import dev.aria.memo.util.MarkdownPreview
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Glance app-widget entry point for the Memo widget.
  *
  * P6.1 contract (widget-driven):
  *  - Primary feed: [dev.aria.memo.data.SingleNoteRepository.observeRecent], the
- *    newest 3 Obsidian-style single-note files. Each row can deep-link into
+ *    newest 20 Obsidian-style single-note files. Each row can deep-link into
  *    [dev.aria.memo.EditActivity] with the note's uid.
  *  - Fallback: when the single-note table is empty we reuse the legacy cross-
  *    day merge from [dev.aria.memo.data.MemoRepository.recentEntriesAcrossDays]
  *    so existing users keep seeing content while their history is still in the
  *    day-file format.
  *  - When BOTH sources are empty we render the "empty + add" body.
+ *
+ * P8 更新：
+ *  - limit 从 3 提升到 20。UI 侧 LazyColumn 天然可滚动，用户把 widget resize 到
+ *    更大的格子（3x3 / 4x4）就能看到更多条，2x2 时仍然看前几条。
+ *  - 这是"源码常量"而不是 runtime config —— widget 里没地方开偏好设置，
+ *    20 条也足够覆盖"最近一周的笔记"这种常见用例。
  *
  * Error handling:
  *  - [ErrorCode.NOT_CONFIGURED] is reflected via `isConfigured=false` so the
@@ -50,9 +58,16 @@ class MemoWidget : GlanceAppWidget() {
         val settings = ServiceLocator.settingsStore.current()
 
         // Fast path: new single-note feed.
-        val singleNotes: List<SingleNoteEntity> =
+        // P8: limit 20（见类 KDoc）。
+        //
+        // Perf-fix C3: 给 Room observe + fallback 都套 withTimeoutOrNull。
+        // 老用户（100+ 天笔记文件）fallback 极端路径会整表 parseEntries +
+        // 正则解析，Room 冷路径 + Keystore 冷启叠起来可能贴近 AppWidget 20s
+        // ANR 阈值。3s timeout 会让 widget 降级成"空态"而不是 ANR / 黑屏。
+        val singleNotes: List<SingleNoteEntity> = withTimeoutOrNull(3_000) {
             if (!settings.isConfigured) emptyList()
-            else singleNoteRepo.observeRecent(limit = 3).first()
+            else singleNoteRepo.observeRecent(limit = 20).first()
+        } ?: emptyList()
 
         val rows: List<MemoWidgetRow>
         val isConfigured: Boolean
@@ -61,8 +76,10 @@ class MemoWidget : GlanceAppWidget() {
             isConfigured = true
             rows = singleNotes.map { it.toRow() }
         } else {
-            // Fallback to the legacy cross-day feed.
-            val legacy = repository.recentEntriesAcrossDays(limit = 3)
+            // Fallback to the legacy cross-day feed. P8: 同步提升到 20。
+            val legacy = withTimeoutOrNull(3_000) {
+                repository.recentEntriesAcrossDays(limit = 20)
+            }
             when (legacy) {
                 is MemoResult.Ok -> {
                     isConfigured = true
@@ -70,6 +87,12 @@ class MemoWidget : GlanceAppWidget() {
                 }
                 is MemoResult.Err -> {
                     isConfigured = legacy.code != ErrorCode.NOT_CONFIGURED
+                    rows = emptyList()
+                }
+                null -> {
+                    // Timeout 时假设已配置（避免错误引导用户重开 app），
+                    // 只渲染空态 —— 下一次 widget tick 会再试一次。
+                    isConfigured = true
                     rows = emptyList()
                 }
             }
@@ -102,7 +125,7 @@ data class MemoWidgetRow(
 internal fun SingleNoteEntity.toRow(): MemoWidgetRow = MemoWidgetRow(
     date = date,
     time = time,
-    label = title.ifBlank { body.firstNonEmptyLineStripped() },
+    label = title.ifBlank { MarkdownPreview.firstNonEmptyLineStripped(body) },
     noteUid = uid,
 )
 
@@ -112,18 +135,3 @@ internal fun DatedMemoEntry.toRow(): MemoWidgetRow = MemoWidgetRow(
     label = body,
     noteUid = null,
 )
-
-/**
- * Return the first non-empty line of [this] with leading markdown markers
- * removed so widget preview matches what the user "reads" as a title.
- */
-private fun String.firstNonEmptyLineStripped(): String {
-    val first = this.lineSequence()
-        .map { it.trim() }
-        .firstOrNull { it.isNotEmpty() }
-        ?: return ""
-    var t = first
-    t = t.replace(Regex("^#+\\s*"), "")
-    t = t.replace(Regex("^[>\\-*+]\\s*"), "")
-    return t.trim()
-}

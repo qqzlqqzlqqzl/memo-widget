@@ -1,6 +1,7 @@
 package dev.aria.memo.data.sync
 
 import android.content.Context
+import androidx.room.withTransaction
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dev.aria.memo.data.ErrorCode
@@ -8,8 +9,10 @@ import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.SingleNoteRepository
 import dev.aria.memo.data.ics.IcsCodec
+import dev.aria.memo.data.local.AppDatabase
 import dev.aria.memo.data.local.NoteFileEntity
 import dev.aria.memo.data.local.SingleNoteEntity
+import dev.aria.memo.data.widget.WidgetRefresher
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
@@ -121,12 +124,6 @@ class PullWorker(
                             val text = runCatching { fileRes.value.decodedContent }.getOrNull() ?: continue
                             val nowMs = System.currentTimeMillis()
                             val decoded = IcsCodec.decode(text, item.path, item.sha, nowMs) ?: continue
-                            // Remote UID may differ from what we had indexed — if so,
-                            // drop the stale row so the new row (keyed on remote UID)
-                            // becomes the canonical one.
-                            if (localByPath != null && localByPath.uid != decoded.uid) {
-                                eventDao.hardDelete(localByPath.uid)
-                            }
                             // S1 fix: reminder is a local-only preference (not in .ics).
                             // Preserve whatever the user set locally, otherwise the first
                             // remote edit to the event would silently wipe every device's
@@ -135,8 +132,27 @@ class PullWorker(
                                 reminderMinutesBefore = localByPath?.reminderMinutesBefore
                                     ?: decoded.reminderMinutesBefore,
                             )
-                            eventDao.upsert(merged)
-                            // Keep AlarmManager in sync with the merged row.
+                            // Data-1 R13 fix: the "delete stale UID → upsert new row"
+                            // sequence used to be two independent DAO calls. A process
+                            // kill between them left the stale row deleted and the new
+                            // row never written → the event disappeared from Room until
+                            // the next pull cycle. Wrapping both in a single Room
+                            // transaction makes the swap atomic (either both persist
+                            // or neither does, and the next cycle retries cleanly).
+                            runInTxOrFallback {
+                                // Remote UID may differ from what we had indexed — if so,
+                                // drop the stale row so the new row (keyed on remote UID)
+                                // becomes the canonical one.
+                                if (localByPath != null && localByPath.uid != decoded.uid) {
+                                    eventDao.hardDelete(localByPath.uid)
+                                }
+                                eventDao.upsert(merged)
+                            }
+                            // Keep AlarmManager in sync with the merged row. This stays
+                            // OUTSIDE the transaction — AlarmManager is a process-local
+                            // IPC call, not a SQLite write, and scheduling it inside
+                            // the txn would block the SQLite writer until the system
+                            // server replies.
                             dev.aria.memo.notify.AlarmScheduler.scheduleForEvent(
                                 applicationContext, merged
                             )
@@ -236,7 +252,24 @@ class PullWorker(
             }
         }
 
+        // P8 widget 自推：不管 retry 还是 success，只要 Pull 这一轮没有直接被
+        // NOT_CONFIGURED / UNAUTHORIZED 提前拒绝，就可能 upsert 了新行
+        // （notes / events / single notes 三段都会 upsert）。即使这轮什么都没拉
+        // （远端无变化），多刷一次也无害 —— WidgetRefresher 的 debounce 会把
+        // 多次连发合并成单次 Glance updateAll。
+        WidgetRefresher.refreshAll(applicationContext)
         return if (anyNetwork) Result.retry() else Result.success()
+    }
+
+    /**
+     * Data-1 R13 helper: run [block] inside a Room transaction when the live
+     * [AppDatabase] is reachable (production path). In unit-test fakes the
+     * db is unreachable, so we just run [block] directly — tests already
+     * operate without durability semantics.
+     */
+    private suspend fun runInTxOrFallback(block: suspend () -> Unit) {
+        val db = AppDatabase.instance()
+        if (db != null) db.withTransaction(block) else block()
     }
 
     /**

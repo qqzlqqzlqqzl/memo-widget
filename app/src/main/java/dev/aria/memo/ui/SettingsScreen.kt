@@ -23,7 +23,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -33,6 +32,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,7 +43,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -62,6 +61,7 @@ import dev.aria.memo.ui.oauth.OAuthSignInDialog
 import dev.aria.memo.ui.oauth.OAuthSignInViewModel
 import dev.aria.memo.ui.theme.MemoSpacing
 import dev.aria.memo.ui.theme.MemoTheme
+import dev.aria.memo.ui.theme.MemoThemeColors
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -168,7 +168,11 @@ fun SettingsScreen(
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
+            // Fix-7 #5 (UI-A report): Settings is a dense form page — the
+            // 140dp LargeTopAppBar hero title was wasting vertical space
+            // above the first field. Switched to the standard `TopAppBar`
+            // which keeps the title crisp without pushing content down.
+            TopAppBar(
                 title = { Text("Memo Widget · 设置") },
                 scrollBehavior = scrollBehavior,
             )
@@ -599,7 +603,10 @@ private fun QuickAddToggleCard(
 private fun NotificationPermissionCard(onOpenSettings: () -> Unit) {
     // Fixes #24: user has denied POST_NOTIFICATIONS — reminders won't fire.
     // Warm amber accent so it reads as "heads up", not "error".
-    val amberAccent = Color(0xFFB8860B)
+    // Fix-7 #1 (UI-A report): was hardcoded `Color(0xFFB8860B)`; lifted to
+    // theme so dark mode brightens the amber (`MemoDarkWarning`) instead of
+    // reusing the dim light-mode value against a dark surface.
+    val amberAccent = MemoThemeColors.warning
     MemoCard(accentColor = amberAccent) {
         Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
             Text(
@@ -623,7 +630,7 @@ private fun SettingsContentEmptyPreview() {
     MemoTheme {
         Scaffold(
             topBar = {
-                LargeTopAppBar(title = { Text("Memo Widget · 设置") })
+                TopAppBar(title = { Text("Memo Widget · 设置") })
             },
         ) { inner ->
             SettingsContent(
@@ -649,7 +656,7 @@ private fun SettingsContentFilledPreview() {
     MemoTheme {
         Scaffold(
             topBar = {
-                LargeTopAppBar(title = { Text("Memo Widget · 设置") })
+                TopAppBar(title = { Text("Memo Widget · 设置") })
             },
         ) { inner ->
             SettingsContent(

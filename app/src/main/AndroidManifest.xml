@@ -28,18 +28,22 @@
             </intent-filter>
         </activity>
 
-        <!-- Quick-entry edit screen, launched from widget -->
+        <!--
+            Quick-entry edit screen, launched from widget, MainActivity, and the
+            note list via explicit Intent(context, EditActivity::class.java).
+            Sec-1 / M3: was previously exported=true with a public
+            `dev.aria.memo.EDIT` action filter, which let any third-party app
+            start EditActivity with arbitrary EXTRA_BODY / EXTRA_PATH and write
+            into the user's GitHub repo. No in-app caller uses the action
+            filter (all call sites build explicit intents), so we lock the
+            activity down to same-process callers only.
+        -->
         <activity
             android:name=".EditActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/edit_title"
             android:launchMode="singleTop"
-            android:theme="@style/Theme.MemoWidget">
-            <intent-filter>
-                <action android:name="dev.aria.memo.EDIT" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.MemoWidget" />
 
         <!-- Glance-backed AppWidget receiver — quick memo 2x2 -->
         <receiver

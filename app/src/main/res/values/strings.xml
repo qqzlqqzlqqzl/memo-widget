@@ -8,12 +8,14 @@
     <!-- App / launcher -->
     <string name="app_name">备忘</string>
 
-    <!-- Widget · 快速备忘 (2x2) -->
+    <!-- Widget · 最近笔记 (默认 3x3, P8 改造为 20 条可滚动列表) -->
     <string name="widget_label">备忘</string>
     <string name="widget_description">一键把想法提交到 GitHub 备忘仓库</string>
     <string name="widget_add_memo">+ 新备忘</string>
     <string name="widget_empty">今天还没写</string>
     <string name="widget_not_configured">先打开 app 配置</string>
+    <!-- P8：手动刷新按钮的无障碍描述（talkback 会读出来） -->
+    <string name="widget_refresh">刷新</string>
 
     <!-- Widget · 今日清单 (4x2) -->
     <string name="today_widget_label">今日</string>
