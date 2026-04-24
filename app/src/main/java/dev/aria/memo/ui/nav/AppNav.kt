@@ -1,10 +1,8 @@
 package dev.aria.memo.ui.nav
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -92,23 +90,19 @@ fun AppNav(onOpenEditor: () -> Unit) {
             }
         },
     ) { padding ->
-        // NavHost inside an AnimatedContent wrapper so tab switches crossfade
-        // briefly rather than snapping. 150 ms matches the M3 Expressive
-        // "subtle" motion duration token — long enough to read as intentional,
-        // short enough to feel snappy.
-        AnimatedContent(
-            targetState = currentRoute ?: Tab.Notes.route,
-            transitionSpec = {
-                fadeIn(tween(150)) togetherWith fadeOut(tween(150))
-            },
-            label = "tab-switch",
+        // P8 Agent-6 W-lint: 把 150ms fade 动画从外层 AnimatedContent wrapper 下沉到
+        // NavHost 的 enterTransition/exitTransition。原来 AnimatedContent 的 _ 参数
+        // 不用会被 lint 误报 UnusedContentLambdaTargetStateParameter。
+        // 语义不变 — tab 切换仍然是 150ms 淡入淡出（M3 Expressive "subtle" token）。
+        NavHost(
+            navController = nav,
+            startDestination = Tab.Notes.route,
             modifier = Modifier.fillMaxSize(),
-        ) { _ ->
-            NavHost(
-                navController = nav,
-                startDestination = Tab.Notes.route,
-                modifier = Modifier.fillMaxSize(),
-            ) {
+            enterTransition = { fadeIn(tween(150)) },
+            exitTransition = { fadeOut(tween(150)) },
+            popEnterTransition = { fadeIn(tween(150)) },
+            popExitTransition = { fadeOut(tween(150)) },
+        ) {
                 composable(Tab.Notes.route) {
                     val vm: NoteListViewModel = viewModel(factory = NoteListViewModel.Factory)
                     NoteListScreen(
@@ -178,7 +172,6 @@ fun AppNav(onOpenEditor: () -> Unit) {
                         modifier = Modifier.padding(padding),
                     )
                 }
-            }
         }
     }
 }
