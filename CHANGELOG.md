@@ -32,7 +32,7 @@ Widget 重做 + 全链路自动刷新。versionCode 13。
   - `PushWorker.doWork()` 在 `Result.success()` 之前。
   - `SettingsStore` owner/repo/pat 变更路径（未配置→已配置时立刻重绘）。
   - `AppBootObserver` / `MainActivity.onCreate`（冷启动兜底）。
-- 快速连续写入时 250ms debounce 合并触发，避免桌面闪烁。
+- 快速连续写入时 400ms debounce（MutableSharedFlow + Flow.debounce）合并触发，避免桌面闪烁和 Glance session-lock 期间的"丢更新"。
 - 所有 widget 刷新调用 `runCatching` 包裹，保证 widget 异常永不冒泡到写路径。
 - 单元测试基线从 220 提升至约 240 项，0 失败。
 
