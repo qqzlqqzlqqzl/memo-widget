@@ -8,7 +8,7 @@
 
 ---
 
-## [v0.12.0-p8] - 2026-04-24
+## [v0.12.1-p8] - 2026-04-24
 
 Widget 重做 + 全链路自动刷新。versionCode 13。
 
@@ -453,7 +453,7 @@ P3 Triage：`IcsCodec` 往返修复、全历史备忘拉取、Today widget itemI
 - [HANDOFF.md](./HANDOFF.md) — 面向 AI 接手会话的上下文
 - [BDD_SCENARIOS.md](./BDD_SCENARIOS.md) — BDD 场景合集
 
-[v0.12.0-p8]: https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.12.0-p8
+[v0.12.1-p8]: https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.12.1-p8
 [v0.11.0-p7]: https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.11.0-p7
 [v0.10.1-p6.1.1]: https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.10.1-p6.1.1
 [v0.10.0-p6.1]: https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.10.0-p6.1
