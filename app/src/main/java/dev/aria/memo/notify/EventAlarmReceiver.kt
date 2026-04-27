@@ -12,6 +12,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import dev.aria.memo.MainActivity
+import dev.aria.memo.data.widget.WidgetRefresher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,6 +38,12 @@ class EventAlarmReceiver : BroadcastReceiver() {
             try {
                 dev.aria.memo.data.ServiceLocator.init(appContext) // defensive
                 AlarmScheduler.rescheduleForUid(appContext, uid)
+                // Fix-WP (Review-Q): for recurring events the next-occurrence
+                // anchor moved when this alarm fired, and the today / memo
+                // widgets render that anchor. refreshAllNow is suspending +
+                // inline so it commits inside this 10 s goAsync frame —
+                // debounced refreshAll would risk being reaped by Doze.
+                WidgetRefresher.refreshAllNow(appContext)
             } finally {
                 pending.finish()
             }

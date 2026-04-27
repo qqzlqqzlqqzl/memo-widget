@@ -1,7 +1,9 @@
 package dev.aria.memo.data.widget
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import androidx.glance.appwidget.updateAll
+import dev.aria.memo.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -78,7 +80,18 @@ object WidgetRefresher {
      * 可替换的刷新执行器。生产环境用 [GlanceWidgetUpdater] 调真实 Glance API；
      * 测试里替换成 fake 就能避开 Android / Glance 初始化。`@Volatile` 防止
      * 测试线程刚写入、生产线程读到旧引用。
+     *
+     * **测试 hook（Review-Y #9 / Fix-Y2）**：标 `@VisibleForTesting` 让 lint
+     * 在生产代码里写入时报警。真实生产路径**只读**这个字段，写入只发生在
+     * `app/src/test/` 下的 `*Test.kt` 的 `@Before` / `@After` 钩子里。Release
+     * APK 仍然可被反射改写（无法在 field-level 加 BuildConfig.DEBUG 守护，
+     * 否则测试会无法 setter），但配合 `@VisibleForTesting` 的 lint 报警 +
+     * `@Suppress` 显式标注，已经把意外滥用的概率降到最低；运行时守护体现在
+     * [overrideScopeForTest] / [resetScopeForTest] 上 —— 反射改 updater 仍
+     * 改不动 `scope` 上的 collector pipeline。
      */
+    @VisibleForTesting
+    @Suppress("MemberVisibilityCanBePrivate")
     @Volatile internal var updater: WidgetUpdater = GlanceWidgetUpdater
 
     /**
@@ -99,6 +112,10 @@ object WidgetRefresher {
     /**
      * 运行 pipeline 的 scope。生产环境默认 SupervisorJob + Default；
      * 测试用 [overrideScopeForTest] 替换成绑定虚拟时钟的 TestScope。
+     *
+     * 字段本身就是 `private`，外部既读不了也写不了；唯一的写入路径是
+     * [overrideScopeForTest] / [resetScopeForTest]，那两个方法在 release
+     * build 里会 throw（见运行时守护）。
      */
     @Volatile private var scope: CoroutineScope = defaultScope()
 
@@ -184,8 +201,17 @@ object WidgetRefresher {
      *
      * 测试 `@After` 必须调用 [resetScopeForTest] 恢复生产 scope，否则单例
      * 状态会污染后续测试。
+     *
+     * **运行时守护（Review-Y #9 / Fix-Y2）**：release APK 里反射调到这个
+     * 方法会立刻 throw [IllegalStateException]。debug build (`BuildConfig.DEBUG
+     * == true`) 才能正常替换 scope。这堵住了"反射改 collector pipeline 让
+     * widget 刷新挂在攻击者控制的 scope 上"这条 vector。
      */
+    @VisibleForTesting
     internal fun overrideScopeForTest(newScope: CoroutineScope) {
+        check(BuildConfig.DEBUG) {
+            "WidgetRefresher.overrideScopeForTest() called in non-debug build"
+        }
         collectorJob?.cancel()
         scope = newScope
         startCollector()
@@ -194,8 +220,15 @@ object WidgetRefresher {
     /**
      * **测试专用**：恢复成默认的 SupervisorJob + Dispatchers.Default scope，
      * 并重启 collector pipeline。测试 `@After` 里必调。
+     *
+     * **运行时守护（Review-Y #9 / Fix-Y2）**：和 [overrideScopeForTest] 同样的
+     * BuildConfig.DEBUG 检查 —— release APK 反射触发会 throw [IllegalStateException]。
      */
+    @VisibleForTesting
     internal fun resetScopeForTest() {
+        check(BuildConfig.DEBUG) {
+            "WidgetRefresher.resetScopeForTest() called in non-debug build"
+        }
         collectorJob?.cancel()
         scope = defaultScope()
         startCollector()

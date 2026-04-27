@@ -257,7 +257,11 @@ class PullWorker(
         // （notes / events / single notes 三段都会 upsert）。即使这轮什么都没拉
         // （远端无变化），多刷一次也无害 —— WidgetRefresher 的 debounce 会把
         // 多次连发合并成单次 Glance updateAll。
-        WidgetRefresher.refreshAll(applicationContext)
+        // Fix-WP (Review-Q): debounced refreshAll → blocking refreshAllNow.
+        // Worker exit lands in Doze's flexible window where the 400 ms
+        // debounce can be reaped before Glance updateAll runs. refreshAllNow
+        // runs inline so the system can't tear us down mid-render.
+        WidgetRefresher.refreshAllNow(applicationContext)
         return if (anyNetwork) Result.retry() else Result.success()
     }
 

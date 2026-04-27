@@ -63,7 +63,23 @@
             android:name=".notify.EventAlarmReceiver"
             android:exported="false" />
 
-        <!-- Re-arm AlarmManager alarms after device boot. -->
+        <!--
+            Re-arm AlarmManager alarms + repaint widgets on:
+              - device boot (BOOT_COMPLETED)
+              - APK upgrade / sideload (MY_PACKAGE_REPLACED) — alarms cleared
+              - phone timezone change (TIMEZONE_CHANGED) — alarms still fire
+                but at the wrong wall-clock time, widget date label drifts
+              - Android 14+ user toggling "Alarms & reminders" permission
+                (SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED) — system
+                downgrades exact → inexact (or back), so we re-arm everything
+                with the new permission state in mind
+
+            Fix-WP (Review-Q): the original filter only listened for
+            BOOT_COMPLETED, so each of the other three events silently dropped
+            every scheduled alarm until the user next opened the app.
+            SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED is API 33+ but the
+            string is harmless on older versions — it just never fires.
+        -->
         <receiver
             android:name=".notify.BootReceiver"
             android:enabled="true"
@@ -71,6 +87,9 @@
             android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 
@@ -85,6 +104,25 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/today_widget_info" />
+        </receiver>
+
+        <!--
+            Fix-X3 / Review-X #4 — 跨日 BDD 漏洞修复。
+            AppWidget 进程默认不订阅 ACTION_DATE_CHANGED；TodayWidget.provideGlance
+            内部用 LocalDate.now() 决定"今天"，跨日（00:00）后 widget 会卡在"昨天"
+            直到下一次 APPWIDGET_UPDATE tick 或数据写路径触发刷新。
+            DateChangedReceiver 监听 system 的 DATE_CHANGED / TIME_SET /
+            TIMEZONE_CHANGED 三个 action，瞬时调用 WidgetRefresher.refreshAll。
+            exported=false：广播发送方只能是系统本身，第三方 app 无法伪造。
+        -->
+        <receiver
+            android:name=".widget.DateChangedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
         </receiver>
 
     </application>

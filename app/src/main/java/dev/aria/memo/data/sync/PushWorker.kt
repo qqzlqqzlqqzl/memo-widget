@@ -3,9 +3,12 @@ package dev.aria.memo.data.sync
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import dev.aria.memo.data.AppConfig
 import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.GhDeleteRequest
 import dev.aria.memo.data.GhPutRequest
+import dev.aria.memo.data.GhPutResponse
+import dev.aria.memo.data.GitHubApi
 import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.ics.IcsCodec
@@ -23,6 +26,17 @@ import java.util.Base64
  * Fixes #27: a 409/422 CONFLICT on a note PUT is transparently re-attempted
  * once after refreshing the remote SHA, because the common cause is a
  * parallel push from another device rather than a semantic conflict.
+ *
+ * Fix-D1 (Review-W #1): the single-note arm extends the same SHA-refresh
+ * retry up to **two** times before giving up. Cross-device concurrent edits
+ * to one note used to leak past the first 409 — the loser was then stuck in
+ * WorkManager's exponential backoff for 6+ hours, looking like data loss.
+ * Two refreshes cover the realistic burst window; a third hard-409 surfaces
+ * as [SyncStatus.Error] with [ErrorCode.CONFLICT] so the UI can route the
+ * user into conflict resolution. The retry algorithm is exposed as the
+ * top-level [pushSingleNoteWithConflictRetry] helper so it can be unit-tested
+ * end-to-end against a Ktor MockEngine without spinning up WorkManager /
+ * Robolectric / Room.
  *
  * WorkManager may instantiate this Worker before Application.onCreate on a
  * cold boot; the idempotent [ServiceLocator.init] guards against that NPE.
@@ -219,15 +233,21 @@ class PushWorker(
                         }
                     }
                 } else {
-                    val encoded = Base64.getEncoder()
-                        .encodeToString(row.body.toByteArray(Charsets.UTF_8))
-                    val req = GhPutRequest(
-                        message = "note: ${row.title.take(40).ifBlank { row.filePath }}",
-                        content = encoded,
-                        branch = config.branch,
-                        sha = row.githubSha,
+                    // Fix-D1 (Review-W #1): delegate the PUT to a shared helper
+                    // that transparently re-fetches the remote SHA and replays
+                    // the request up to MAX_CONFLICT_RETRIES times on 409. This
+                    // closes the cross-device data-loss window described in the
+                    // class KDoc and is unit-tested directly via MockEngine in
+                    // PushWorkerSingleNoteConflictTest.
+                    val res = pushSingleNoteWithConflictRetry(
+                        api = api,
+                        config = config,
+                        filePath = row.filePath,
+                        body = row.body,
+                        title = row.title,
+                        currentSha = row.githubSha,
                     )
-                    when (val res = api.putFile(config, row.filePath, req)) {
+                    when (res) {
                         is MemoResult.Ok -> {
                             singleNoteDao.markClean(
                                 row.uid,
@@ -288,7 +308,98 @@ class PushWorker(
         // P8 widget 自推：Push 成功意味着 dirty 清了，widget 底部的"同步状态"
         // （未来）要能反映；即使在 retry 分支，已经 markClean 的行也需要刷新
         // （push 是逐行做的，有些成功有些失败，Room 可能已经部分更新）。
-        WidgetRefresher.refreshAll(applicationContext)
+        //
+        // Fix-WP (Review-Q): refreshAll → refreshAllNow. Worker exit lands
+        // in Doze's flexible window where the 400 ms debounce can be reaped
+        // before Glance updateAll runs. refreshAllNow is inline so the
+        // dirty→clean transition becomes visible on the widget immediately.
+        WidgetRefresher.refreshAllNow(applicationContext)
         return if (retry) Result.retry() else Result.success()
+    }
+}
+
+/**
+ * Fix-D1 (Review-W #1): maximum number of SHA-refresh retries the single-note
+ * push will perform on consecutive 409s before giving up. With 2 retries the
+ * worker burns at most 3 PUTs + 2 GETs per conflicting note — cheap enough
+ * that we don't need exponential backoff inside the loop, and large enough to
+ * converge against realistic cross-device concurrent edit bursts (where each
+ * loser only needs 1-2 SHA refreshes to land its content).
+ */
+internal const val MAX_CONFLICT_RETRIES: Int = 2
+
+/**
+ * Push a single Obsidian-style note with transparent SHA-refresh retry on
+ * HTTP 409 / 422. Mirrors the existing day-file [PushWorker.doWorkInner] note
+ * arm but allows up to [maxConflictRetries] consecutive refreshes before
+ * surfacing a CONFLICT error to the caller (Fix-D1 / Review-W #1).
+ *
+ * Algorithm:
+ *  1. PUT with the caller's [currentSha] (the row's last-known remote blob).
+ *  2. On HTTP 200 — return [MemoResult.Ok] with the GitHub response so the
+ *     caller can persist the new SHA via `markClean`.
+ *  3. On any non-CONFLICT error (NETWORK, UNAUTHORIZED, …) — propagate
+ *     verbatim. We do not retry these; that's the outer worker's job.
+ *  4. On CONFLICT — GET the file to discover the current remote SHA and
+ *     replay the PUT with the refreshed SHA. Repeat up to
+ *     [maxConflictRetries] times; if all retries also CONFLICT, surface
+ *     [ErrorCode.CONFLICT] so the worker emits [SyncStatus.Error] and the UI
+ *     routes the user into conflict resolution.
+ *  5. If a refresh GET itself fails (e.g. NETWORK during the retry window)
+ *     surface that error verbatim — refreshing is not retried recursively,
+ *     because doing so would let a flapping connection silently burn the
+ *     entire worker quota on one note.
+ *
+ * Pure-function: takes only the request payload + dependencies, returns the
+ * response. No side effects on Room / SyncStatusBus, so the unit test in
+ * [dev.aria.memo.data.sync.PushWorkerSingleNoteConflictTest] can stub the
+ * entire chain with a Ktor MockEngine.
+ */
+internal suspend fun pushSingleNoteWithConflictRetry(
+    api: GitHubApi,
+    config: AppConfig,
+    filePath: String,
+    body: String,
+    title: String,
+    currentSha: String?,
+    maxConflictRetries: Int = MAX_CONFLICT_RETRIES,
+): MemoResult<GhPutResponse> {
+    val encoded = Base64.getEncoder().encodeToString(body.toByteArray(Charsets.UTF_8))
+    val message = "note: ${title.take(40).ifBlank { filePath }}"
+
+    var attemptSha: String? = currentSha
+    var conflictAttempts = 0
+    while (true) {
+        val req = GhPutRequest(
+            message = message,
+            content = encoded,
+            branch = config.branch,
+            sha = attemptSha,
+        )
+        when (val res = api.putFile(config, filePath, req)) {
+            is MemoResult.Ok -> return res
+            is MemoResult.Err -> {
+                if (res.code != ErrorCode.CONFLICT ||
+                    conflictAttempts >= maxConflictRetries) {
+                    // Either a non-CONFLICT error (network/auth/etc.) or
+                    // we've already burned every retry — propagate so the
+                    // outer dispatcher emits the right SyncStatus.Error.
+                    return MemoResult.Err(res.code, res.message)
+                }
+                // Refresh SHA and try again. If the refresh GET itself
+                // fails (e.g. 404 because the row was deleted on the other
+                // device, or NETWORK) surface the error verbatim so the
+                // worker can react without looping forever.
+                when (val refreshed = api.getFile(config, filePath)) {
+                    is MemoResult.Ok -> {
+                        attemptSha = refreshed.value.sha
+                        conflictAttempts += 1
+                    }
+                    is MemoResult.Err -> {
+                        return MemoResult.Err(refreshed.code, refreshed.message)
+                    }
+                }
+            }
+        }
     }
 }

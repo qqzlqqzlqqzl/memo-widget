@@ -141,4 +141,11 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.client.mock)
+    // Fix-W1: Robolectric + AndroidX test-core lift JVM unit tests onto a real
+    // Android framework. Used by MemoWidgetIntegrationTest / WidgetCrossDayTest /
+    // WidgetDebounceIntegrationTest to exercise Glance widgets end-to-end without
+    // an emulator. testOptions.unitTests.isIncludeAndroidResources is already
+    // enabled above — that's what lets Robolectric load merged manifest + R class.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

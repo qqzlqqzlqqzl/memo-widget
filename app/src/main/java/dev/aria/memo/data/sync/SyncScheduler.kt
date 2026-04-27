@@ -17,6 +17,21 @@ object SyncScheduler {
     private const val PULL_UNIQUE = "memo.pull.periodic"
     private const val PULL_NOW_UNIQUE = "memo.pull.now"
 
+    /**
+     * Fix-WP (Review-Q): chained saves used to be enqueued with
+     * [ExistingWorkPolicy.APPEND_OR_REPLACE], serialising every retry-then-save
+     * burst onto a single linear chain. A single failing push (transient
+     * NETWORK in WorkManager's exponential backoff) blocked all subsequent
+     * saves until the head finished its 6-hour retry curve.
+     *
+     * KEEP collapses redundant enqueues into a no-op because [PushWorker]
+     * already re-scans every `dirty = true` row on entry.
+     *
+     * `internal` so [SyncSchedulerPolicyTest] can assert the policy without
+     * needing a real WorkManager instance on the test classpath.
+     */
+    internal val PUSH_POLICY: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
+
     private val networkConstraints = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
@@ -28,7 +43,7 @@ object SyncScheduler {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(PUSH_UNIQUE, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            .enqueueUniqueWork(PUSH_UNIQUE, PUSH_POLICY, request)
     }
 
     /** One-shot pull triggered on app open / pull-to-refresh. */

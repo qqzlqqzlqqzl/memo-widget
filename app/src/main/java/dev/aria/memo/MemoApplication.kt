@@ -3,6 +3,7 @@ package dev.aria.memo
 import android.app.Application
 import dev.aria.memo.data.PreferencesStore
 import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.sync.ConfigChangeListener
 import dev.aria.memo.data.sync.SyncScheduler
 import dev.aria.memo.notify.NotificationChannelSetup
 import dev.aria.memo.notify.QuickAddNotificationManager
@@ -36,7 +37,8 @@ class MemoApplication : Application() {
         // 会延后几十到几百毫秒生效。对用户体感无影响（pull 本来就 30 分钟周期，
         // push 本来就异步，不保证立即发车）。
         val prefs = PreferencesStore(this)
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+        val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        ioScope.launch {
             SyncScheduler.schedulePeriodicPull(this@MemoApplication)
             SyncScheduler.enqueuePush(this@MemoApplication)
             // Re-hydrate the ongoing "记一笔" notification after a process
@@ -44,6 +46,17 @@ class MemoApplication : Application() {
             if (prefs.currentQuickAddEnabled()) {
                 QuickAddNotificationManager.show(this@MemoApplication)
             }
+        }
+        // Fix-D6 (Review-W 7): listen on SettingsStore.config; isConfigured
+        // false-to-true triggers an immediate enqueuePush so dirty rows that
+        // P6.1.1 #57 left behind upload as soon as the user finishes filling
+        // PAT/owner/repo, instead of waiting for the 30-min pull cycle or a
+        // manual sync. Long-running collect, separate launch.
+        ioScope.launch {
+            ConfigChangeListener(
+                settings = ServiceLocator.settingsStore,
+                context = this@MemoApplication,
+            ).start()
         }
     }
 }

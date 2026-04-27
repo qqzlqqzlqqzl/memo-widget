@@ -57,6 +57,22 @@ interface SingleNoteDao {
     )
     suspend fun tombstone(uid: String, updatedAt: Long)
 
+    /**
+     * Reverse of [tombstone]: clear the soft-delete flag so the row resurfaces
+     * in the read queries. Marks the row dirty so PushWorker re-PUTs the body
+     * to GitHub the next cycle if the tombstone has already produced a remote
+     * DELETE within the brief window between the user's delete tap and the
+     * snackbar Undo. Used by the Undo affordance on the note-list delete
+     * snackbar.
+     *
+     * Fix-X2 Part 2.
+     */
+    @Query(
+        "UPDATE single_notes SET tombstoned = 0, dirty = 1, localUpdatedAt = :updatedAt " +
+            "WHERE uid = :uid"
+    )
+    suspend fun restoreFromTombstone(uid: String, updatedAt: Long)
+
     @Query("DELETE FROM single_notes WHERE uid = :uid")
     suspend fun hardDelete(uid: String)
 

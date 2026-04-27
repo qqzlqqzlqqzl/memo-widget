@@ -13,6 +13,7 @@ import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.local.EventEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -22,8 +23,21 @@ import java.time.ZoneId
  * Width: `resizable` so the launcher can flex it between 4x2 and 4x4. Rows
  * tap into [dev.aria.memo.MainActivity] (landing on the Notes tab); the
  * header "+" opens [dev.aria.memo.EditActivity] for a quick memo.
+ *
+ * ## 跨日（Fix-X3 / Review-X #4）
+ *
+ * `provideGlance` 内部用 `LocalDate.now(clock)` 决定"今天"。Widget 进程**不会**
+ * 因为系统跨日（`ACTION_DATE_CHANGED`）自动重渲染 —— AppWidget 默认只听
+ * `APPWIDGET_UPDATE`。Fix-X3 用配套的 [DateChangedReceiver] 监听
+ * `DATE_CHANGED / TIME_SET / TIMEZONE_CHANGED` 三个广播，在跨日 / 时区切换的
+ * 一瞬间调用 [dev.aria.memo.data.widget.WidgetRefresher.refreshAll]，把
+ * MemoWidget + TodayWidget 的"今天"基线重新刷一次。
+ *
+ * `clock` 参数（默认 [Clock.systemDefaultZone]）是注入点 —— 单元测试可以传
+ * `Clock.fixed(Instant.parse("2026-04-26T23:59:00Z"), ZoneId.of("Asia/Shanghai"))`
+ * 锁定一个跨日边缘的时间点，断言 `LocalDate.now(clock)` 的输出。
  */
-class TodayWidget : GlanceAppWidget() {
+class TodayWidget(private val clock: Clock = Clock.systemDefaultZone()) : GlanceAppWidget() {
 
     override val sizeMode: SizeMode = SizeMode.Single
 
@@ -31,8 +45,10 @@ class TodayWidget : GlanceAppWidget() {
         ServiceLocator.init(context)
         val repo = ServiceLocator.repository
         val eventRepo = ServiceLocator.eventRepo
-        val today = LocalDate.now()
-        val zone = ZoneId.systemDefault()
+        // Fix-X3: 用注入的 clock 决定"今天"，便于单元测试用 Clock.fixed(...) 锁定
+        // 跨日边缘时间点。生产路径 clock = Clock.systemDefaultZone() 行为不变。
+        val today = LocalDate.now(clock)
+        val zone = clock.zone
         val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
         val dayEnd = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 
