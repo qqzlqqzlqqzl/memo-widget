@@ -41,9 +41,14 @@ class WidgetBddTest {
     fun setUp() {
         ctx = InstrumentationRegistry.getInstrumentation().targetContext
         counter = CountingUpdater()
-        // Save existing updater (production GlanceWidgetUpdater) so we can restore.
         originalUpdater = WidgetRefresher.updater
         WidgetRefresher.updater = counter
+        // Test isolation: 在 emulator 上前面 test 的 SharedFlow.debounce(400ms)
+        // pipeline emit 可能 leak 到当前 test —— 等够 debounce 窗口让残留 emit
+        // 用 originalUpdater 完成,然后清零 counter 再开始正式 BDD scenario。
+        runBlocking { kotlinx.coroutines.delay(700) }
+        counter.memoCount.set(0)
+        counter.todayCount.set(0)
     }
 
     @After
