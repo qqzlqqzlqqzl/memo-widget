@@ -97,13 +97,10 @@ class WidgetBddTest {
      */
     @Test
     fun bdd_441_rapid_emits_collapse_to_single_update() = runBlocking {
-        // Burst of 10 emits within 100ms (well inside the 400ms debounce window).
         repeat(10) { WidgetRefresher.refreshAll(ctx) }
-        // Wait a bit beyond debounce window (400ms) for the pipeline to fire.
-        kotlinx.coroutines.delay(800)
-        // Note: debounce yields exactly 1 collapsed call from the SharedFlow pipeline.
-        // But because the 'updater' field is read once when the pipeline emits, both
-        // MemoWidget and TodayWidget run once each.
+        // Pipeline 在 Dispatchers.Default 上 collect。emulator 时序比 JVM 慢，
+        // 用 polling 等到 pipeline emit (上限 3s 防 hang)。
+        awaitCounter(counter::memoCount, expected = 1, timeoutMs = 3000)
         assertEquals("debounce 应合并 10 次为 1 次", 1, counter.memoCount.get())
         assertEquals("debounce 应合并 10 次为 1 次", 1, counter.todayCount.get())
     }
@@ -137,8 +134,7 @@ class WidgetBddTest {
     fun bdd_069_date_changed_triggers_widget_refresh() = runBlocking {
         val receiver = DateChangedReceiver()
         receiver.onReceive(ctx, Intent(Intent.ACTION_DATE_CHANGED))
-        // refreshAll 是 fire-and-forget tryEmit + debounce(400ms),等够时间.
-        kotlinx.coroutines.delay(800)
+        awaitCounter(counter::memoCount, expected = 1, timeoutMs = 3000)
         assertEquals(
             "ACTION_DATE_CHANGED 必须触发 widget refresh",
             1, counter.memoCount.get(),
@@ -152,11 +148,23 @@ class WidgetBddTest {
     fun bdd_069b_time_changed_triggers_widget_refresh() = runBlocking {
         val receiver = DateChangedReceiver()
         receiver.onReceive(ctx, Intent(Intent.ACTION_TIME_CHANGED))
-        kotlinx.coroutines.delay(800)
+        awaitCounter(counter::memoCount, expected = 1, timeoutMs = 3000)
         assertTrue(
             "ACTION_TIME_CHANGED 应触发 ≥ 1 次 refresh",
             counter.memoCount.get() >= 1,
         )
+    }
+
+    /** Polling helper — wait until [counter] reaches [expected] or timeout. */
+    private suspend fun awaitCounter(
+        counter: () -> AtomicInteger,
+        expected: Int,
+        timeoutMs: Long = 3000L,
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline && counter().get() < expected) {
+            kotlinx.coroutines.delay(50)
+        }
     }
 
     /**
