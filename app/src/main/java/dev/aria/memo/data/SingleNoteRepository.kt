@@ -66,12 +66,17 @@ open class SingleNoteRepository(
         now: LocalDateTime = LocalDateTime.now(),
     ): MemoResult<SingleNoteEntity> {
         val config = settings.current()
+        // Review-W #2: query existing paths first so buildEntityForCreate can
+        // detect same-first-line + same-minute collisions and append a 5-digit
+        // suffix instead of letting UNIQUE silently overwrite the prior row.
+        val existingPaths = dao.allFilePaths().toSet()
         // Build entity first so we know the filePath — needed to scope the lock.
         val entity = buildEntityForCreate(
             body = body,
             now = now,
             uid = UUID.randomUUID().toString(),
             nowMs = System.currentTimeMillis(),
+            existingPaths = existingPaths,
         )
         // Fixes #40 (P6.1): serialise the upsert against any in-flight
         // PushWorker on the same filePath.
@@ -278,19 +283,19 @@ open class SingleNoteRepository(
             now: LocalDateTime,
             uid: String,
             nowMs: Long,
+            existingPaths: Set<String> = emptySet(),
         ): SingleNoteEntity {
             val date = now.toLocalDate()
-            // Zero out seconds/nanos — the filename component is HHMM, and we
-            // don't want to leak unused precision to the DB either.
             val time = now.toLocalTime().withNano(0).withSecond(0)
-            // Data-1 R11 fix: empty / whitespace-only bodies produce
-            // `note` as their slug — two blank notes created within the
-            // same minute would collide on `<date>-<HHMM>-note.md` and
-            // the UNIQUE index would silently overwrite the first body.
-            // [NoteSlugger.uniqueSlugOf] falls back to `note-<5 digits>`
-            // for the blank-body case only; non-blank bodies see the
-            // same slug as before.
-            val slug = NoteSlugger.uniqueSlugOf(body)
+            // Review-W #2 + Data-1 R11: 用 slugOfWithCollisionCheck 一并解决
+            // 空 body collision 和"非空 body 同首行同分钟" collision。无冲突 →
+            // 返回 base slug (兼容现有用户笔记 URL);冲突 → 加 5-digit 后缀。
+            val pathPrefix = "notes/${formatDate(date)}-${formatTime(time)}-"
+            val slug = NoteSlugger.slugOfWithCollisionCheck(
+                body = body,
+                existingPaths = existingPaths,
+                pathBuilder = { s -> "$pathPrefix$s.md" },
+            )
             val fileName = "${formatDate(date)}-${formatTime(time)}-$slug.md"
             return SingleNoteEntity(
                 uid = uid,

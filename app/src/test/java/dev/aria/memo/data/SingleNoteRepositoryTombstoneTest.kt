@@ -285,6 +285,8 @@ private class FakeSingleNoteDao(initial: List<SingleNoteEntity>) : SingleNoteDao
 
     override suspend fun snapshotAll(): List<SingleNoteEntity> = rows.value.values.toList()
 
+    override suspend fun allFilePaths(): List<String> = rows.value.values.map { it.filePath }
+
     override suspend fun upsert(entity: SingleNoteEntity) {
         rows.value = rows.value + (entity.uid to entity)
     }

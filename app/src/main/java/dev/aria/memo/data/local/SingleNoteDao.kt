@@ -42,6 +42,13 @@ interface SingleNoteDao {
     @Query("SELECT * FROM single_notes")
     suspend fun snapshotAll(): List<SingleNoteEntity>
 
+    /**
+     * Review-W #2 fix support: 返回所有 filePath（含 tombstoned），SingleNoteRepository.create
+     * 用它通过 [NoteSlugger.slugOfWithCollisionCheck] 检测同首行同分钟 collision。
+     */
+    @Query("SELECT filePath FROM single_notes")
+    suspend fun allFilePaths(): List<String>
+
     @Upsert
     suspend fun upsert(entity: SingleNoteEntity)
 
