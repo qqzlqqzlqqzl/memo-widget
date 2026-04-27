@@ -17,6 +17,11 @@ android {
         versionCode = 15
         versionName = "0.12.2-p8"
 
+        // Fix-W3 / Fix-WidgetBdd: required for instrumented test discovery on
+        // emulator (CI android-instrumented job) — without this the runner
+        // can't find @RunWith(AndroidJUnit4::class) classes.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -148,4 +153,11 @@ dependencies {
     // enabled above — that's what lets Robolectric load merged manifest + R class.
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+
+    // Fix-WidgetBdd: instrumented (emulator) test deps for WidgetSmokeTest +
+    // WidgetBddTest. Run on CI's android-instrumented job (api-level 33 emu).
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
 }

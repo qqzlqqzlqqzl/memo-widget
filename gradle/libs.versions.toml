@@ -28,6 +28,10 @@ startup = "1.2.0"
 # - androidx-test-core gives ApplicationProvider in JVM unit-test source set.
 robolectric = "4.14.1"
 androidx-test-core = "1.6.1"
+# Fix-W3 / Fix-WidgetBdd: emulator instrumented test deps (androidTest source set)
+androidx-test-ext-junit = "1.2.1"
+androidx-test-runner = "1.6.2"
+androidx-test-rules = "1.6.1"
 
 [libraries]
 # AndroidX core / activity
@@ -101,6 +105,10 @@ junit = { module = "junit:junit", version.ref = "junit" }
 # which simulate a Glance widget instance against ApplicationContext.
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 androidx-test-core = { module = "androidx.test:core-ktx", version.ref = "androidx-test-core" }
+# Fix-W3 / Fix-WidgetBdd: emulator instrumented test deps
+androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-ext-junit" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidx-test-runner" }
+androidx-test-rules = { module = "androidx.test:rules", version.ref = "androidx-test-rules" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
