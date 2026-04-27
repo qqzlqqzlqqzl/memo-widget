@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.PushPin
@@ -34,8 +36,10 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -182,8 +186,26 @@ fun NoteListScreen(
                     val uid = pending.uid
                     pendingDelete = null
                     viewModel.delete(uid)
+                    // Fix-X2 Part 2: replace the silent "已删除" toast with a
+                    // snackbar that exposes an "撤销" action. Hitting it within
+                    // the window calls restoreFromTombstone(uid) so the row
+                    // reappears before PushWorker DELETEs the GitHub file.
+                    // Letting the snackbar time out is "no undo" — the existing
+                    // tombstone semantics drive the real remote DELETE on the
+                    // next push cycle. Material3 SnackbarDuration.Short ≈ 4s,
+                    // the closest standard value to the spec's "5 秒内点" Undo
+                    // window; SnackbarDuration.Long (~10s) felt too lingering
+                    // for a non-error confirmation toast.
                     scope.launch {
-                        snackbarHostState.showSnackbar(message = "已删除")
+                        val result = snackbarHostState.showSnackbar(
+                            message = "已删除",
+                            actionLabel = "撤销",
+                            withDismissAction = false,
+                            duration = SnackbarDuration.Short,
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            viewModel.restoreFromTombstone(uid)
+                        }
                     }
                 }) {
                     Text("删除", color = MaterialTheme.colorScheme.error)
@@ -486,6 +508,21 @@ private fun SingleNoteRow(
                 }
             }
             Spacer(modifier = Modifier.width(MemoSpacing.sm))
+            // Fix-X2 Part 1: surface the dirty/未同步 state so users can see at
+            // a glance which rows are still pending a GitHub push. CloudOff in
+            // tertiary color (matching the row's accent stripe) reads as
+            // "this note hasn't reached your cloud yet" without claiming an
+            // error state. The icon collapses to nothing when dirty=false so
+            // synced rows keep their existing layout untouched.
+            if (note.dirty) {
+                Icon(
+                    imageVector = Icons.Filled.CloudOff,
+                    contentDescription = "未同步",
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(MemoSpacing.sm))
+            }
             IconButton(onClick = { onTogglePin(note.path, !note.pinned) }) {
                 Icon(
                     imageVector = if (note.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,

@@ -21,6 +21,14 @@ navigation-compose = "2.8.4"
 calendar-compose = "2.6.0"
 startup = "1.2.0"
 
+# Fix-W1 (P8.1 Robolectric integration tests)
+# - 4.14.1: latest version that runs on JDK 17 (4.16+ requires JDK 21).
+# - Supports up to SDK 35 framework via @Config(sdk = [N]); we pin tests to 33
+#   for Glance 1.1.0 compatibility (RemoteViews shadow stable on 33).
+# - androidx-test-core gives ApplicationProvider in JVM unit-test source set.
+robolectric = "4.14.1"
+androidx-test-core = "1.6.1"
+
 [libraries]
 # AndroidX core / activity
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
@@ -87,6 +95,12 @@ androidx-startup = { module = "androidx.startup:startup-runtime", version.ref = 
 
 # Test
 junit = { module = "junit:junit", version.ref = "junit" }
+
+# Fix-W1: Robolectric + AndroidX test-core for JVM-side Android-framework tests.
+# Required by MemoWidgetIntegrationTest / WidgetCrossDayTest / WidgetDebounceIntegrationTest
+# which simulate a Glance widget instance against ApplicationContext.
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+androidx-test-core = { module = "androidx.test:core-ktx", version.ref = "androidx-test-core" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

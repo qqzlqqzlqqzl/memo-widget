@@ -99,9 +99,35 @@ object AlarmScheduler {
         }
         return PendingIntent.getBroadcast(
             context,
-            uid.hashCode(),
+            stableRequestCode(uid),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    }
+
+    /**
+     * Fix-WP (Review-Q): map a UID to a stable, well-dispersed positive Int
+     * for [PendingIntent] requestCode.
+     *
+     * Was `uid.hashCode()` — JDK's [String.hashCode] is tuned for HashMap
+     * bucket dispersion, not full-range collision resistance. UUID-shaped
+     * strings cluster heavily in the low 16 bits; the Birthday-bound says
+     * ~2^16 alarms hit a 50% collision probability.
+     *
+     * FNV-1a over the UTF-8 bytes is a few extra cycles and disperses much
+     * more uniformly across the full 31-bit positive range.
+     *
+     * Caveat: this is still 32-bit. The real fix for collision-free routing
+     * is a SQLite `uid → AUTOINCREMENT INT` mapping table; tracked as P9.
+     */
+    private fun stableRequestCode(uid: String): Int {
+        val bytes = uid.toByteArray(Charsets.UTF_8)
+        // FNV-1a 32-bit: offset basis 0x811c9dc5, prime 0x01000193.
+        var h = 0x811c9dc5.toInt()
+        for (b in bytes) {
+            h = h xor (b.toInt() and 0xff)
+            h = (h * 0x01000193).toInt()
+        }
+        return h and 0x7fffffff // strip sign bit so the Int is always positive
     }
 }

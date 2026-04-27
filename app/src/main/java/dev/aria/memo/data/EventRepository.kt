@@ -42,6 +42,10 @@ class EventRepository(
         rrule: String? = null,
         reminderMinutesBefore: Int? = null,
     ): MemoResult<EventEntity> {
+        if (endMs < startMs) return MemoResult.Err(
+            ErrorCode.UNKNOWN,
+            "结束时间不能早于开始时间 (endMs=$endMs, startMs=$startMs)",
+        )
         val config = settings.current()
         if (!config.isConfigured) return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "not configured")
         val uid = UUID.randomUUID().toString()
@@ -77,6 +81,10 @@ class EventRepository(
         rrule: String? = null,
         reminderMinutesBefore: Int? = null,
     ): MemoResult<EventEntity> {
+        if (endMs < startMs) return MemoResult.Err(
+            ErrorCode.UNKNOWN,
+            "结束时间不能早于开始时间 (endMs=$endMs, startMs=$startMs)",
+        )
         val existing = dao.get(uid) ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "event not found")
         val updated = existing.copy(
             summary = summary,
@@ -106,4 +114,5 @@ class EventRepository(
 
     /** Export a single event as iCalendar text — primarily for tests and inspection. */
     fun encode(entity: EventEntity): String = IcsCodec.encode(entity)
+
 }

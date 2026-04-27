@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -43,6 +45,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,7 +61,9 @@ import dev.aria.memo.data.oauth.GitHubOAuthClient
 import dev.aria.memo.notify.NotificationPermissionBus
 import dev.aria.memo.notify.QuickAddNotificationManager
 import dev.aria.memo.ui.components.MemoCard
+import dev.aria.memo.ui.components.PatStatusCard
 import dev.aria.memo.ui.oauth.OAuthSignInDialog
+import dev.aria.memo.ui.oauth.OAuthSignInState
 import dev.aria.memo.ui.oauth.OAuthSignInViewModel
 import dev.aria.memo.ui.theme.MemoSpacing
 import dev.aria.memo.ui.theme.MemoTheme
@@ -78,6 +84,9 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var patVisible by remember { mutableStateOf(false) }
     var aiKeyVisible by remember { mutableStateOf(false) }
+    // Review-W #3: gate the destructive switch-account flow behind a confirm
+    // dialog so a misclick can't silently empty the user's pending notes.
+    var showSwitchAccountDialog by remember { mutableStateOf(false) }
     // Fixes #24: subscribe to the permission bus so denied state surfaces a guidance card.
     val notificationDenied by NotificationPermissionBus.denied.collectAsStateWithLifecycle()
 
@@ -120,6 +129,48 @@ fun SettingsScreen(
         onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
     }
 
+    // Fix-X1: focus + scroll plumbing for the PAT field. The TextField hooks
+    // both modifiers; the LaunchedEffect on `highlightPatRequest` plays the
+    // pulse whenever the VM bumps the counter (post-OAuth-failure, post-fix
+    // navigation, etc.).
+    val patFocusRequester = remember { FocusRequester() }
+    val patBringIntoView = remember { BringIntoViewRequester() }
+    LaunchedEffect(state.highlightPatRequest) {
+        if (state.highlightPatRequest > 0L) {
+            // bringIntoView first so the field is on-screen before we steal
+            // focus — focusing an off-screen element doesn't auto-scroll on
+            // older Compose, leaving the keyboard up over a hidden target.
+            runCatching { patBringIntoView.bringIntoView() }
+            runCatching { patFocusRequester.requestFocus() }
+        }
+    }
+
+    // Fix-X1: watch the OAuth dialog's state. When it lands in `Failed`, drop
+    // the user back at the PAT input with the highlight pulse + a snackbar
+    // hinting that the existing stored PAT may be the real culprit (expired
+    // or scope mismatch).
+    val oauthState by oauthViewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(oauthState) {
+        if (oauthState is OAuthSignInState.Failed && showOAuthDialog) {
+            showOAuthDialog = false
+            viewModel.requestPatHighlight()
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    "GitHub 登录失败：PAT 可能已过期或权限不足，请检查设置",
+                )
+            }
+        }
+    }
+
+    // Fix-X1: when the screen first lands on already-configured config, fire a
+    // background verification once so the StatusCard can swap the neutral
+    // "已配置" hint for an authoritative ✓ / ⚠️.
+    LaunchedEffect(state.loaded, state.isConfigured, state.patStatus) {
+        if (state.loaded && state.isConfigured && state.patStatus is PatStatus.Unknown) {
+            viewModel.testConnection()
+        }
+    }
+
     // Surface saved / error events as Snackbars then consume them.
     LaunchedEffect(state.lastSavedAt) {
         if (state.lastSavedAt != null) {
@@ -132,6 +183,18 @@ fun SettingsScreen(
         if (msg != null) {
             scope.launch { snackbarHostState.showSnackbar(msg) }
             viewModel.consumeError()
+        }
+    }
+    // Review-W #3 fix: dedicated success snackbar for the "切换账号" path so
+    // the user gets explicit confirmation that the local sync queue was wiped
+    // (this is the whole point of the safety dialog — silently swallowing the
+    // outcome would defeat it).
+    LaunchedEffect(state.accountSwitchedAt) {
+        if (state.accountSwitchedAt != null) {
+            scope.launch {
+                snackbarHostState.showSnackbar("已切换账号，本地未同步备忘录已清除 ✓")
+            }
+            viewModel.consumeAccountSwitchedEvent()
         }
     }
     // AI "测试连接" outcomes piggy-back on the same snackbar host. Two distinct
@@ -190,6 +253,10 @@ fun SettingsScreen(
             onRepoChange = viewModel::onRepoChange,
             onBranchChange = viewModel::onBranchChange,
             onSave = viewModel::save,
+            onSwitchAccount = { showSwitchAccountDialog = true },
+            onTestConnection = viewModel::testConnection,
+            patFocusRequester = patFocusRequester,
+            patBringIntoView = patBringIntoView,
             onAiProviderUrlChange = viewModel::onAiProviderUrlChange,
             onAiModelChange = viewModel::onAiModelChange,
             onAiApiKeyChange = viewModel::onAiApiKeyChange,
@@ -273,6 +340,48 @@ fun SettingsScreen(
             },
         )
     }
+
+    // Review-W #3 fix: confirmation dialog for the "切换账号" flow. The
+    // wording is deliberately blunt — we are about to *erase* every unsynced
+    // local edit so the new account's repo doesn't inherit notes typed under
+    // the previous identity. The destructive `Confirm` button uses the error
+    // palette so it doesn't blur into the normal "继续" cadence.
+    if (showSwitchAccountDialog) {
+        AlertDialog(
+            onDismissRequest = { showSwitchAccountDialog = false },
+            title = { Text("切换 GitHub 账号？") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+                    Text(
+                        text = "切换账号会清除当前所有「本地已写但还没同步到 GitHub」" +
+                            "的备忘录修改。这一步是为了避免上一个账号的草稿被推到新账号的 repo。",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "如果只是想更新过期的 PAT、保留本地未同步内容，请按 取消 然后用「保存」。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showSwitchAccountDialog = false
+                        viewModel.switchAccount()
+                    },
+                ) {
+                    Text(
+                        text = "确认切换并清除草稿",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSwitchAccountDialog = false }) { Text("取消") }
+            },
+        )
+    }
 }
 
 private fun openAppNotificationSettings(ctx: android.content.Context) {
@@ -305,6 +414,10 @@ private fun SettingsContent(
     onTestAi: () -> Unit = {},
     onOpenHelp: () -> Unit = {},
     onOAuthSignIn: () -> Unit = {},
+    onSwitchAccount: () -> Unit = {},
+    onTestConnection: () -> Unit = {},
+    patFocusRequester: FocusRequester? = null,
+    patBringIntoView: BringIntoViewRequester? = null,
     notificationDenied: Boolean = false,
     onOpenNotificationSettings: () -> Unit = {},
     quickAddEnabled: Boolean = false,
@@ -325,8 +438,25 @@ private fun SettingsContent(
             enabled = quickAddEnabled,
             onToggle = onQuickAddToggle,
         )
-        StatusCard(state = state)
+        // Fix-X1: replaces the legacy StatusCard. The new card surfaces the
+        // PAT *liveness* state machine (Unknown / Verifying / Valid / Invalid
+        // / CheckFailed) instead of just "fields non-blank?", and exposes
+        // "重新验证" + "用 GitHub 重新登录" actions inline so users have a
+        // visible recovery path when the token gets revoked.
+        PatStatusCard(
+            state = state,
+            onTestConnection = onTestConnection,
+            onReauth = onOAuthSignIn,
+        )
 
+        // Fix-X1: chain the focus + bringIntoView modifiers so an external
+        // `requestPatHighlight()` lands here. We default to a no-op `Modifier`
+        // when the requesters are absent (Preview composables) so the
+        // signature stays back-compat with the existing previews.
+        val patFieldModifier = Modifier.fillMaxWidth().let { base ->
+            val withFocus = if (patFocusRequester != null) base.focusRequester(patFocusRequester) else base
+            if (patBringIntoView != null) withFocus.bringIntoViewRequester(patBringIntoView) else withFocus
+        }
         OutlinedTextField(
             value = state.pat,
             onValueChange = onPatChange,
@@ -344,7 +474,7 @@ private fun SettingsContent(
                 }
             },
             supportingText = { Text("仅本机存储，不会上传到任何其它地方") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = patFieldModifier,
         )
 
         OutlinedButton(
@@ -383,7 +513,7 @@ private fun SettingsContent(
 
         Button(
             onClick = onSave,
-            enabled = !state.isSaving && state.loaded,
+            enabled = !state.isSaving && !state.isSwitchingAccount && state.loaded,
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (state.isSaving) {
@@ -393,6 +523,30 @@ private fun SettingsContent(
                 )
             } else {
                 Text("保存")
+            }
+        }
+
+        // Review-W #3 fix: dedicated "切换账号" affordance.
+        //
+        // Disabled until the user has actually filled in a config (no point
+        // switching to nothing) and during the in-flight switch / save (avoid
+        // double submission). Uses an OutlinedButton so it visually reads as
+        // "secondary, destructive" rather than competing with 保存.
+        OutlinedButton(
+            onClick = onSwitchAccount,
+            enabled = !state.isSaving &&
+                !state.isSwitchingAccount &&
+                state.loaded &&
+                state.isConfigured,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (state.isSwitchingAccount) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.height(18.dp),
+                )
+            } else {
+                Text("切换 GitHub 账号")
             }
         }
 

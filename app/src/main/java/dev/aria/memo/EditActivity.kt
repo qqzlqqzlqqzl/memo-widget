@@ -1,5 +1,6 @@
 package dev.aria.memo
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -81,6 +82,42 @@ class EditActivity : ComponentActivity() {
                     } else null,
                 )
             }
+        }
+    }
+
+    /**
+     * Review-T fix: launchMode="singleTop" 让系统复用同一 Activity 实例（避免栈里堆笔记编辑器），
+     * 但默认 onNewIntent 不更新 ViewModel —— 用户在 NoteA 编辑时点 widget 打开 NoteB，
+     * Activity 复用，ViewModel 仍持 noteUid=A，编辑 NoteB 内容点保存会写到 NoteA 文件。
+     * 这是跨笔记数据覆盖致命 bug。
+     *
+     * 修法：检测到新 intent 的"笔记身份"和当前持有的不同时，finish() + 重启 Activity，
+     * 让 ViewModel 用新 uid 重建。**身份**包含三个维度（Review-Fix4 复核补漏）：
+     *  1. EXTRA_NOTE_UID 不同 → single-note 模式切笔记
+     *  2. EXTRA_NOTE_UID 都为 null 但 EXTRA_PATH 不同 → legacy day-file 切 path
+     *  3. uid null → 非 null（或反向）→ 模式切换
+     *
+     * **已知妥协（草稿丢失，待 P8.2 补完整 discard dialog）**：用户在 NoteA 有未保存修改
+     * 时切到 NoteB 会丢稿——viewModelScope 在 finish() 时被 cancel，_body MutableStateFlow
+     * 是纯内存。BackHandler 的"是否保存草稿"对话框只覆盖系统返回键，不覆盖此路径。
+     * 我们接受这个 lesser evil:
+     *   - 跨笔记覆盖 = silent corruption（用户永远不知道写错文件）
+     *   - 草稿丢失 = 用户能感知（"我刚刚没保存就切了 widget"）
+     * P8.2 issue 留 discard dialog 流程接管。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val newUid = intent.getStringExtra(EXTRA_NOTE_UID)
+        val oldUid = getIntent()?.getStringExtra(EXTRA_NOTE_UID)
+        val newPath = intent.getStringExtra(EXTRA_PATH)
+        val oldPath = getIntent()?.getStringExtra(EXTRA_PATH)
+        // Identity change = uid changed, OR both uids null but path changed.
+        val identityChanged = (newUid != oldUid) ||
+            (newUid == null && oldUid == null && newPath != oldPath)
+        if (identityChanged) {
+            setIntent(intent)
+            finish()
+            startActivity(intent)
         }
     }
 

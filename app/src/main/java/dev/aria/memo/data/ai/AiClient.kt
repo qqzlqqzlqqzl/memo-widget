@@ -58,6 +58,13 @@ class AiClient(
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "AI 尚未配置")
         }
+        // Fix-A2 (Sec-1 caveat): refuse plain HTTP to avoid Bearer apiKey leakage.
+        if (!config.providerUrl.startsWith("https://")) {
+            return MemoResult.Err(
+                ErrorCode.UNKNOWN,
+                "AI provider URL 必须以 https:// 开头（当前: ${config.providerUrl.take(20)}）",
+            )
+        }
 
         val messages = buildList {
             if (systemPrompt.isNotBlank()) {

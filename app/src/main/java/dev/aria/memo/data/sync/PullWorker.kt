@@ -45,6 +45,34 @@ class PullWorker(
         val config = settings.current()
         if (!config.isConfigured) return Result.success()
 
+        // Review-Z #1 fix: repo 健康探针。用户填错 owner/repo 时,GitHub 整个 repo
+        // 返 404,后续 listDir(notes/) / listDir(events/) / getFile(...) 全部 404。
+        // 此前 NOT_FOUND -> Unit 让所有 404 静默,用户列表永远空白却没任何提示,
+        // 除了卸载没有线索意识到是配置错误。
+        //
+        // 修法:在 worker 入口调一次根 listDir,根 404 → 强信号 repo 不存在 →
+        // emit Error(NOT_FOUND) + return success (避免无意义重试)。子目录 404 仍 OK
+        // (用户 repo 只是还没创建 notes/events/ 子目录)。
+        when (val probe = api.listDir(config, "")) {
+            is MemoResult.Err -> when (probe.code) {
+                ErrorCode.NOT_FOUND -> {
+                    SyncStatusBus.emit(
+                        SyncStatus.Error(
+                            ErrorCode.NOT_FOUND,
+                            "GitHub 仓库不存在 — 请检查设置中的 owner/repo 配置",
+                        ),
+                    )
+                    return Result.success()
+                }
+                ErrorCode.UNAUTHORIZED -> {
+                    SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, "GitHub 拒绝访问"))
+                    return Result.success()
+                }
+                else -> Unit // network / other transient errors fall through to normal pull
+            }
+            is MemoResult.Ok -> Unit // repo exists, proceed
+        }
+
         var anyNetwork = false
 
         // P6.1 第 6 项：全局 pull 预算，四段共享。旧逻辑三段各自 50/50/50 封顶，
@@ -257,7 +285,11 @@ class PullWorker(
         // （notes / events / single notes 三段都会 upsert）。即使这轮什么都没拉
         // （远端无变化），多刷一次也无害 —— WidgetRefresher 的 debounce 会把
         // 多次连发合并成单次 Glance updateAll。
-        WidgetRefresher.refreshAll(applicationContext)
+        // Fix-WP (Review-Q): debounced refreshAll → blocking refreshAllNow.
+        // Worker exit lands in Doze's flexible window where the 400 ms
+        // debounce can be reaped before Glance updateAll runs. refreshAllNow
+        // runs inline so the system can't tear us down mid-render.
+        WidgetRefresher.refreshAllNow(applicationContext)
         return if (anyNetwork) Result.retry() else Result.success()
     }
 

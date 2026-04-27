@@ -66,12 +66,17 @@ open class SingleNoteRepository(
         now: LocalDateTime = LocalDateTime.now(),
     ): MemoResult<SingleNoteEntity> {
         val config = settings.current()
+        // Review-W #2: query existing paths first so buildEntityForCreate can
+        // detect same-first-line + same-minute collisions and append a 5-digit
+        // suffix instead of letting UNIQUE silently overwrite the prior row.
+        val existingPaths = dao.allFilePaths().toSet()
         // Build entity first so we know the filePath — needed to scope the lock.
         val entity = buildEntityForCreate(
             body = body,
             now = now,
             uid = UUID.randomUUID().toString(),
             nowMs = System.currentTimeMillis(),
+            existingPaths = existingPaths,
         )
         // Fixes #40 (P6.1): serialise the upsert against any in-flight
         // PushWorker on the same filePath.
@@ -135,8 +140,20 @@ open class SingleNoteRepository(
         return result
     }
 
-    /** Soft-delete so the push worker can drive a remote DELETE. */
-    suspend fun delete(uid: String): MemoResult<Unit> {
+    /**
+     * Soft-delete a single note by flipping `tombstoned = 1`. The row stays in
+     * Room so the push worker can drive a remote DELETE on its next run; reads
+     * filter tombstoned rows out so the UI sees an immediate disappearance.
+     *
+     * Fix-X2 Part 2: paired with [restoreFromTombstone] for the 5-second Undo
+     * window on the delete snackbar — the note list ViewModel calls
+     * `tombstone` on the delete tap and `restoreFromTombstone` if the user hits
+     * the "撤销" snackbar action before WorkManager wakes the push worker.
+     *
+     * `open` so unit tests can subclass with overrides that bypass the
+     * WorkManager / Glance side effects (which require an Android Context).
+     */
+    open suspend fun tombstone(uid: String): MemoResult<Unit> {
         val existing = dao.get(uid)
             ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
         // Fixes #40 (P6.1).
@@ -149,6 +166,41 @@ open class SingleNoteRepository(
         WidgetRefresher.refreshAll(appContext)
         return result
     }
+
+    /**
+     * Reverse of [tombstone]: clear the soft-delete flag so the row reappears
+     * in `observeAll`/`observeRecent` queries. Marks the row dirty so the next
+     * push reconciles GitHub if the tombstone has already been DELETEd remotely.
+     *
+     * NOT_FOUND when the row no longer exists in Room — the push worker beat
+     * the user's Undo tap, the row was hardDeleted on a successful remote
+     * DELETE, and the Undo path is no longer available. Callers should treat
+     * this as "nothing to undo" and clear any pending UI affordance silently.
+     *
+     * Fix-X2 Part 2. `open` so unit tests can subclass with overrides that
+     * bypass the WorkManager / Glance side effects.
+     */
+    open suspend fun restoreFromTombstone(uid: String): MemoResult<Unit> {
+        val existing = dao.get(uid)
+            ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
+        val result = PathLocker.withLock(existing.filePath) {
+            dao.restoreFromTombstone(existing.uid, System.currentTimeMillis())
+            SyncScheduler.enqueuePush(appContext)
+            MemoResult.Ok(Unit)
+        }
+        // Mirror the tombstone path's widget refresh — restored notes need to
+        // come back into the widget feed too.
+        WidgetRefresher.refreshAll(appContext)
+        return result
+    }
+
+    /**
+     * Soft-delete alias kept for callers not yet migrated to [tombstone].
+     * Fix-X2 Part 2: kept as a thin delegate so the call-site reads
+     * symmetrically with the new `tombstone` / `restoreFromTombstone` Undo flow
+     * elsewhere in the codebase.
+     */
+    suspend fun delete(uid: String): MemoResult<Unit> = tombstone(uid)
 
     /**
      * Toggle the pin flag. Rewrites the body to carry `pinned: true` front
@@ -231,19 +283,19 @@ open class SingleNoteRepository(
             now: LocalDateTime,
             uid: String,
             nowMs: Long,
+            existingPaths: Set<String> = emptySet(),
         ): SingleNoteEntity {
             val date = now.toLocalDate()
-            // Zero out seconds/nanos — the filename component is HHMM, and we
-            // don't want to leak unused precision to the DB either.
             val time = now.toLocalTime().withNano(0).withSecond(0)
-            // Data-1 R11 fix: empty / whitespace-only bodies produce
-            // `note` as their slug — two blank notes created within the
-            // same minute would collide on `<date>-<HHMM>-note.md` and
-            // the UNIQUE index would silently overwrite the first body.
-            // [NoteSlugger.uniqueSlugOf] falls back to `note-<5 digits>`
-            // for the blank-body case only; non-blank bodies see the
-            // same slug as before.
-            val slug = NoteSlugger.uniqueSlugOf(body)
+            // Review-W #2 + Data-1 R11: 用 slugOfWithCollisionCheck 一并解决
+            // 空 body collision 和"非空 body 同首行同分钟" collision。无冲突 →
+            // 返回 base slug (兼容现有用户笔记 URL);冲突 → 加 5-digit 后缀。
+            val pathPrefix = "notes/${formatDate(date)}-${formatTime(time)}-"
+            val slug = NoteSlugger.slugOfWithCollisionCheck(
+                body = body,
+                existingPaths = existingPaths,
+                pathBuilder = { s -> "$pathPrefix$s.md" },
+            )
             val fileName = "${formatDate(date)}-${formatTime(time)}-$slug.md"
             return SingleNoteEntity(
                 uid = uid,

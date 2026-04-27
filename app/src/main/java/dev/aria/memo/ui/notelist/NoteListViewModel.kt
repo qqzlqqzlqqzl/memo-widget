@@ -54,6 +54,16 @@ sealed interface NoteListUiItem {
         val date: LocalDate,
         val time: LocalTime,
         override val pinned: Boolean,
+        /**
+         * Mirror of [dev.aria.memo.data.local.SingleNoteEntity.dirty] — true
+         * while the row hasn't been pushed yet. The list row decorates dirty
+         * entries with a [androidx.compose.material.icons.filled.CloudOff]
+         * marker so the user can see at a glance which notes are still local.
+         *
+         * Defaults to false to keep test fixtures terse; runtime mapping in
+         * the VM combine block always passes through the entity's flag.
+         */
+        val dirty: Boolean = false,
     ) : NoteListUiItem
 }
 
@@ -136,6 +146,9 @@ class NoteListViewModel(
                     date = s.date,
                     time = s.time,
                     pinned = s.isPinned,
+                    // Fix-X2 Part 1: surface the dirty flag so the row can
+                    // render a CloudOff badge while the push is pending.
+                    dirty = s.dirty,
                 )
             }
             val merged = (legacyItems + singleItems).sortedWith(ITEM_ORDER)
@@ -190,15 +203,32 @@ class NoteListViewModel(
 
     /**
      * Fix-6 (Bug-1 C4): delete a single-note by uid. Bridges the UI long-press
-     * "🗑 删除" menu to [SingleNoteRepository.delete], which tombstones the row
-     * locally and relies on PushWorker to DELETE it from GitHub on the next
-     * push cycle. Errors are swallowed here — the repository already surfaces
-     * NOT_FOUND etc. via SyncStatusBus when appropriate, and the UI shows a
-     * simple "已删除" snackbar from the screen layer.
+     * "🗑 删除" menu to [SingleNoteRepository.tombstone], which tombstones the
+     * row locally and relies on PushWorker to DELETE it from GitHub on the
+     * next push cycle. Errors are swallowed here — the repository already
+     * surfaces NOT_FOUND etc. via SyncStatusBus when appropriate, and the UI
+     * shows a "已删除" snackbar with an Undo affordance from the screen layer.
+     *
+     * Fix-X2 Part 2: switched from the legacy `delete` alias to the explicit
+     * `tombstone` name so the call-site reads symmetrically with the new
+     * [restoreFromTombstone] Undo flow.
      */
     fun delete(uid: String) {
         viewModelScope.launch {
-            singleNoteRepo.delete(uid)
+            singleNoteRepo.tombstone(uid)
+        }
+    }
+
+    /**
+     * Fix-X2 Part 2: undo a recent tombstone within the snackbar's Undo
+     * window. Restores the soft-deleted row so it reappears in the list and
+     * resumes the normal push pipeline. A remote DELETE that already won the
+     * race is unrecoverable — the repository returns NOT_FOUND in that case
+     * and we silently swallow it; the user already saw the row vanish.
+     */
+    fun restoreFromTombstone(uid: String) {
+        viewModelScope.launch {
+            singleNoteRepo.restoreFromTombstone(uid)
         }
     }
 
