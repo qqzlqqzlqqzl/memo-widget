@@ -1,5 +1,6 @@
 package dev.aria.memo
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -81,6 +82,30 @@ class EditActivity : ComponentActivity() {
                     } else null,
                 )
             }
+        }
+    }
+
+    /**
+     * Review-T fix: launchMode="singleTop" 让系统复用同一 Activity 实例（避免栈里堆笔记编辑器），
+     * 但默认 onNewIntent 不更新 ViewModel —— 用户在 NoteA 编辑时点 widget 打开 NoteB，
+     * Activity 复用，ViewModel 仍持 noteUid=A，编辑 NoteB 内容点保存会写到 NoteA 文件。
+     * 这是跨笔记数据覆盖致命 bug。
+     *
+     * 修法：检测到新 intent 的 EXTRA_NOTE_UID 和当前持有的不同时，finish() + 重启 Activity，
+     * 让 ViewModel 用新 uid 重建。同 uid 不动（保持 singleTop 行为）。
+     *
+     * 已知妥协：用户在 NoteA 有未保存修改时切到 NoteB 会丢稿。BackHandler 的"保存草稿"
+     * 对话框只在系统返回键路径生效，不覆盖 onNewIntent 路径。P8.2 issue 留补稿对话框。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val newUid = intent.getStringExtra(EXTRA_NOTE_UID)
+        val oldUid = getIntent()?.getStringExtra(EXTRA_NOTE_UID)
+        if (newUid != oldUid) {
+            // Replace the stored intent so getIntent() in the new instance reads the new extras.
+            setIntent(intent)
+            finish()
+            startActivity(intent)
         }
     }
 

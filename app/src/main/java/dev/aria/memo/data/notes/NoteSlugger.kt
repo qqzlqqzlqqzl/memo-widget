@@ -130,4 +130,35 @@ object NoteSlugger {
     /** Collapse runs of whitespace into a single `-` so the slug is one token. */
     private fun collapseWhitespace(text: String): String =
         text.replace(Regex("\\s+"), "-")
+
+    /**
+     * Review-W #2 fix: 同首行 + 同分钟 collision 保护。
+     *
+     * `slugOf` 对非空 body 返回 base slug 不加后缀，保留现有用户笔记 URL 兼容。
+     * 但同分钟内两条相同首行会撞 UNIQUE 索引（`notes/2026-04-27-1823-foo.md` × 2）。
+     *
+     * 调用方先用 [slugOf] 拿 base + [pathBuilder] 拼完整路径，传入当前已用 path 集合
+     * （从 DAO query 拿）。无冲突 → 直接返回 base（99% 路径零变化）；冲突 → 加
+     * 5-digit 后缀 retry，最多 [MAX_COLLISION_RETRIES] 次（防病态 RNG）。
+     */
+    fun slugOfWithCollisionCheck(
+        body: String,
+        existingPaths: Set<String>,
+        pathBuilder: (String) -> String,
+        rng: java.util.Random = java.util.Random(),
+    ): String {
+        val base = uniqueSlugOf(body, rng)
+        if (pathBuilder(base) !in existingPaths) return base
+        // Retry with random 5-digit suffix.
+        var lastCandidate = base
+        repeat(MAX_COLLISION_RETRIES) {
+            val candidate = "$base-${10_000 + rng.nextInt(90_000)}"
+            lastCandidate = candidate
+            if (pathBuilder(candidate) !in existingPaths) return candidate
+        }
+        // Bounded fallback: return last candidate, let DB UNIQUE index reject.
+        return lastCandidate
+    }
+
+    const val MAX_COLLISION_RETRIES = 8
 }

@@ -42,6 +42,7 @@ class EventRepository(
         rrule: String? = null,
         reminderMinutesBefore: Int? = null,
     ): MemoResult<EventEntity> {
+        validateRange(startMs, endMs)
         val config = settings.current()
         if (!config.isConfigured) return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "not configured")
         val uid = UUID.randomUUID().toString()
@@ -77,6 +78,7 @@ class EventRepository(
         rrule: String? = null,
         reminderMinutesBefore: Int? = null,
     ): MemoResult<EventEntity> {
+        validateRange(startMs, endMs)
         val existing = dao.get(uid) ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "event not found")
         val updated = existing.copy(
             summary = summary,
@@ -106,4 +108,17 @@ class EventRepository(
 
     /** Export a single event as iCalendar text — primarily for tests and inspection. */
     fun encode(entity: EventEntity): String = IcsCodec.encode(entity)
+
+    companion object {
+        /**
+         * Data-1 R9 / Bug-1 H6 fix: 拒绝 endMs < startMs 的事件输入。
+         * UI 层已在保存按钮禁用非法输入，repo 这层是防御性后盾——命中即编程错误。
+         * 允许 endMs == startMs（零时长事件，比如打卡）。
+         */
+        fun validateRange(startMs: Long, endMs: Long) {
+            require(endMs >= startMs) {
+                "endMs ($endMs) must be >= startMs ($startMs)"
+            }
+        }
+    }
 }
