@@ -22,8 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import dev.aria.memo.ui.PatStatus
-import dev.aria.memo.ui.SettingsUiState
+import dev.aria.memo.ui.settings.PatStatus
+import dev.aria.memo.ui.settings.SettingsUiState
 import dev.aria.memo.ui.theme.MemoSpacing
 import dev.aria.memo.ui.theme.MemoTheme
 import dev.aria.memo.ui.theme.MemoThemeColors

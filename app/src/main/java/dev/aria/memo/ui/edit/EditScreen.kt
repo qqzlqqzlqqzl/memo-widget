@@ -1,4 +1,4 @@
-package dev.aria.memo.ui
+package dev.aria.memo.ui.edit
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler

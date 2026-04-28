@@ -3,8 +3,8 @@ package dev.aria.memo.ui.edit
 import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.local.SingleNoteEntity
-import dev.aria.memo.ui.EditViewModel
-import dev.aria.memo.ui.SaveState
+import dev.aria.memo.ui.edit.EditViewModel
+import dev.aria.memo.ui.edit.SaveState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher

@@ -6,8 +6,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import dev.aria.memo.ui.EditScreen
-import dev.aria.memo.ui.EditViewModel
+import dev.aria.memo.ui.edit.EditScreen
+import dev.aria.memo.ui.edit.EditViewModel
 import dev.aria.memo.ui.theme.MemoTheme
 
 /**

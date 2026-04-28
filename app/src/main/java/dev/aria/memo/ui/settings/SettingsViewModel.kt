@@ -1,4 +1,4 @@
-package dev.aria.memo.ui
+package dev.aria.memo.ui.settings
 
 import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel

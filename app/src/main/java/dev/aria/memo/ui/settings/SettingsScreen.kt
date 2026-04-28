@@ -1,4 +1,4 @@
-package dev.aria.memo.ui
+package dev.aria.memo.ui.settings
 
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement

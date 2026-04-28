@@ -1,9 +1,9 @@
 package dev.aria.memo.ui
 
-import dev.aria.memo.ui.SettingsViewModel.Companion.validateApiKey
-import dev.aria.memo.ui.SettingsViewModel.Companion.validateGithubPat
-import dev.aria.memo.ui.SettingsViewModel.Companion.validateModelName
-import dev.aria.memo.ui.SettingsViewModel.Companion.validateProviderUrl
+import dev.aria.memo.ui.settings.SettingsViewModel.Companion.validateApiKey
+import dev.aria.memo.ui.settings.SettingsViewModel.Companion.validateGithubPat
+import dev.aria.memo.ui.settings.SettingsViewModel.Companion.validateModelName
+import dev.aria.memo.ui.settings.SettingsViewModel.Companion.validateProviderUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull

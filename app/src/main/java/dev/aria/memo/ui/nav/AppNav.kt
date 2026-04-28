@@ -31,8 +31,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.aria.memo.data.ServiceLocator
-import dev.aria.memo.ui.SettingsScreen
-import dev.aria.memo.ui.SettingsViewModel
+import dev.aria.memo.ui.settings.SettingsScreen
+import dev.aria.memo.ui.settings.SettingsViewModel
 import dev.aria.memo.ui.onboarding.OnboardingDialog
 import kotlinx.coroutines.launch
 import dev.aria.memo.ui.ai.AiChatScreen
