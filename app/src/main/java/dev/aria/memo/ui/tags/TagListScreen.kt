@@ -27,9 +27,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,10 +54,17 @@ fun TagListScreen(
 
     // A tag is selected by its full path (e.g. "work/meeting"). Null = tree view.
     var selectedPath by rememberSaveable { mutableStateOf<String?>(null) }
-    // Which internal branches are expanded — keyed by full path. Kept in a
-    // plain snapshot list; state survives recomposition but not process death
-    // (good enough for a transient expansion state).
-    val expanded = remember { mutableStateListOf<String>() }
+    // Which internal branches are expanded — keyed by full path. Promoted to
+    // `rememberSaveable` (Fixes #167) so the user's expansion choices survive
+    // tab swaps and process death; the previous mutableStateListOf was wiped
+    // every time the tab tore down. listSaver flattens the Set to a
+    // Bundle-safe List<String> on save.
+    var expanded by rememberSaveable(
+        stateSaver = listSaver<Set<String>, String>(
+            save = { it.toList() },
+            restore = { it.toSet() },
+        ),
+    ) { mutableStateOf<Set<String>>(emptySet()) }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
@@ -101,7 +108,7 @@ fun TagListScreen(
                     root = state.root,
                     expanded = expanded,
                     onToggleExpand = { path ->
-                        if (expanded.contains(path)) expanded.remove(path) else expanded.add(path)
+                        expanded = if (path in expanded) expanded - path else expanded + path
                     },
                     onSelectTag = { path -> selectedPath = path },
                 )
@@ -115,12 +122,12 @@ fun TagListScreen(
 @Composable
 private fun TagTree(
     root: TagNode,
-    expanded: List<String>,
+    expanded: Set<String>,
     onToggleExpand: (String) -> Unit,
     onSelectTag: (String) -> Unit,
 ) {
-    val flattened = remember(root, expanded.toList()) {
-        flatten(root, expanded.toSet())
+    val flattened = remember(root, expanded) {
+        flatten(root, expanded)
     }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(2.dp),
