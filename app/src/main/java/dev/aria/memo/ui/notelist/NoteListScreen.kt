@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.PushPin
@@ -567,6 +568,18 @@ private fun SingleNoteRow(
                     imageVector = if (note.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                     contentDescription = if (note.pinned) "取消置顶" else "置顶",
                     tint = if (note.pinned) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // Fixes #196 (Bug-2 High): the long-press "问 AI / 删除" menu
+            // was undiscoverable — users never tried long-press because
+            // there was no affordance hinting it existed. Add an
+            // explicit MoreVert button that opens the same DropdownMenu;
+            // the long-press path stays as the power-user shortcut.
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "更多",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

@@ -96,23 +96,40 @@ data class NoteListUiState(
      * Apply the free-text query to both shapes:
      *  - [NoteListUiItem.LegacyDay]: match by any entry body
      *  - [NoteListUiItem.SingleNote]: match by title or preview
+     *
+     * Fixes #199 (Bug-2 User Story 12): when the query starts with `#`,
+     * treat it as a tag filter — the body / title / preview must contain
+     * that exact `#tag` token (or any nested form `#tag/...`). Lets users
+     * jump from the search bar to "show me everything tagged #work"
+     * without leaving the Notes tab.
      */
     val filtered: List<NoteListUiItem>
         get() {
             val q = query.trim()
             if (q.isEmpty()) return items
+            // Tag filter: query like "#work" matches "#work" or "#work/anything".
+            // We compare on the raw "#…" token in body so a single-note that
+            // mentions `#work/meeting` still matches `#work`.
+            val tagFilter = q.startsWith("#") && q.length >= 2
+            val tagPrefix = q.removePrefix("#")
             return items.mapNotNull { item ->
                 when (item) {
                     is NoteListUiItem.LegacyDay -> {
-                        val hits = item.group.entries.filter {
-                            it.body.contains(q, ignoreCase = true)
+                        val hits = item.group.entries.filter { entry ->
+                            if (tagFilter) entry.body.containsTag(tagPrefix)
+                            else entry.body.contains(q, ignoreCase = true)
                         }
                         if (hits.isEmpty()) null
                         else NoteListUiItem.LegacyDay(item.group.copy(entries = hits))
                     }
                     is NoteListUiItem.SingleNote -> {
-                        val match = item.title.contains(q, ignoreCase = true) ||
-                            item.preview.contains(q, ignoreCase = true)
+                        val match = if (tagFilter) {
+                            item.preview.containsTag(tagPrefix) ||
+                                item.title.containsTag(tagPrefix)
+                        } else {
+                            item.title.contains(q, ignoreCase = true) ||
+                                item.preview.contains(q, ignoreCase = true)
+                        }
                         if (match) item else null
                     }
                 }
@@ -420,3 +437,35 @@ class NoteListViewModel(
         }
     }
 }
+
+/**
+ * Returns true when [this] contains the bare token `#prefix` or a nested
+ * form `#prefix/…`. Used by the search bar to jump to "filter by this
+ * tag" — fixes #199 (Bug-2 User Story 12).
+ *
+ * Matches the `#tag/nested` taxonomy used by
+ * [dev.aria.memo.data.tag.TagIndexer]: ASCII alphanum + `_` + CJK
+ * (U+4E00..U+9FA5), with `/` separating nested levels.
+ */
+private fun String.containsTag(prefix: String): Boolean {
+    if (prefix.isEmpty()) return false
+    val target = "#" + prefix
+    var idx = 0
+    while (true) {
+        val hit = indexOf(target, idx, ignoreCase = true)
+        if (hit < 0) return false
+        val end = hit + target.length
+        val nextChar = getOrNull(end)
+        // End of string OR a non-tag character (whitespace, punctuation)
+        // means the prefix is a complete tag — match.
+        if (nextChar == null || !nextChar.isTagBodyChar()) return true
+        // Slash starts a nested level (#work/meeting matches `#work` filter).
+        if (nextChar == '/') return true
+        // Otherwise the hit is a substring of a longer tag (`#work` should
+        // not match `#workspace`); keep scanning.
+        idx = end
+    }
+}
+
+private fun Char.isTagBodyChar(): Boolean =
+    this.isLetterOrDigit() || this == '_' || this in '一'..'龥'
