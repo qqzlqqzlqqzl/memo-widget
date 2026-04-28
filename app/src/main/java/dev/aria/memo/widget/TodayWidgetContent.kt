@@ -107,7 +107,7 @@ fun TodayWidgetContent(
 /**
  * P8：Today 的 title bar 新增 🔄 刷新按钮。与 MemoWidget 对称，区别在
  * [RefreshTodayWidgetAction] 调用的是 [TodayWidget.updateAll]。详见
- * [RefreshActionCallback.kt] 里关于"为何要拆成两个 callback"的说明。
+ * [RefreshWidgetActions.kt] 里关于"为何要拆成两个 callback"的说明。
  */
 @Composable
 private fun TodayTitleBar(date: LocalDate, isConfigured: Boolean) {
