@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [NoteFileEntity::class, EventEntity::class, SingleNoteEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -76,6 +76,31 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE note_files ADD COLUMN isPinned INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * v8 → v9: add composite indices for the hot sort/range queries
+         * (#303 Data-1 R2/R3 / Perf-1 M7).
+         *  - note_files (isPinned, date) — list ordering
+         *  - events (startEpochMs, endEpochMs) — TodayWidget /
+         *    CalendarViewModel range filter
+         *  - single_notes (isPinned, date, time) — list ordering
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_note_files_isPinned_date` " +
+                        "ON `note_files` (`isPinned`, `date`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_events_startEpochMs_endEpochMs` " +
+                        "ON `events` (`startEpochMs`, `endEpochMs`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_single_notes_isPinned_date_time` " +
+                        "ON `single_notes` (`isPinned`, `date`, `time`)",
+                )
             }
         }
 
@@ -147,6 +172,7 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
+                MIGRATION_8_9,
             )
             .build()
             .also { _instance = it }

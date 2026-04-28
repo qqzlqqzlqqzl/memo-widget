@@ -28,7 +28,14 @@ import java.time.LocalTime
  */
 @Entity(
     tableName = "single_notes",
-    indices = [Index(value = ["filePath"], unique = true)],
+    indices = [
+        Index(value = ["filePath"], unique = true),
+        // Fixes #303 (Data-1 R2): observeAll / observeRecent both
+        // ORDER BY isPinned DESC, date DESC, time DESC. Without a
+        // matching composite index every emission forced a temp sort
+        // — visible as note-list jank past a few hundred notes.
+        Index(value = ["isPinned", "date", "time"]),
+    ],
 )
 data class SingleNoteEntity(
     @PrimaryKey val uid: String,

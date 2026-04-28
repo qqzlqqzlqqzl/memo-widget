@@ -19,7 +19,14 @@ import java.time.LocalDate
  */
 @Entity(
     tableName = "note_files",
-    indices = [Index(value = ["date"])],
+    indices = [
+        Index(value = ["date"]),
+        // Fixes #303 (Data-1 R2): NoteListViewModel and NoteListScreen
+        // sort the day-file list by `isPinned DESC, date DESC`. Without
+        // this composite index the planner runs a tablescan + temporary
+        // sort on every emission — measurable when the user has 100+ days.
+        Index(value = ["isPinned", "date"]),
+    ],
 )
 data class NoteFileEntity(
     @PrimaryKey val path: String,

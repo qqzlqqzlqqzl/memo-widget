@@ -15,7 +15,18 @@ import androidx.room.PrimaryKey
  * milliseconds — UI renders in the device local zone. `dirty` + `githubSha`
  * mirror [NoteFileEntity]'s sync semantics.
  */
-@Entity(tableName = "events", indices = [Index(value = ["filePath"], unique = true)])
+@Entity(
+    tableName = "events",
+    indices = [
+        Index(value = ["filePath"], unique = true),
+        // Fixes #303 (Data-1 R3 / Perf-1 M7): TodayWidget.observeBetween
+        // and CalendarViewModel both filter on (startEpochMs, endEpochMs)
+        // ranges. Without the composite index every range query did a
+        // tablescan, which 2_000ms-timeouts when the user accumulated
+        // a few thousand recurring-event occurrences.
+        Index(value = ["startEpochMs", "endEpochMs"]),
+    ],
+)
 data class EventEntity(
     @PrimaryKey val uid: String,
     val summary: String,
