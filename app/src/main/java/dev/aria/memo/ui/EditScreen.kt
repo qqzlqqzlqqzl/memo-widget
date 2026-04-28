@@ -1,6 +1,8 @@
 package dev.aria.memo.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,6 +99,7 @@ fun EditScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var editorValue by rememberSaveable(stateSaver = TextFieldValueSaver) {
         mutableStateOf(TextFieldValue(vmBody))
     }
@@ -132,14 +135,13 @@ fun EditScreen(
     LaunchedEffect(state) {
         when (val s = state) {
             is SaveState.Success -> {
-                // Clear the editor text immediately so the user can *see* the
-                // save landed — an empty field is a stronger "done" signal
-                // than leaving the text sitting there. ViewModel's
-                // duplicate-save window is the authoritative guard against
-                // double-tap.
                 editorValue = TextFieldValue("")
                 viewModel.setBody("")
                 viewModel.reset()
+                // Bug-2 #152 fix: 保存成功显示 toast 让用户看到反馈。
+                // Editor 清空 + Activity finish 太快,用户感知不到"我刚刚保存了"。
+                // 加一条 transient toast,300ms 显示后由 onSaved() finish() 顶掉。
+                Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
                 onSaved()
             }
             is SaveState.Error -> {

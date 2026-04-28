@@ -59,7 +59,13 @@ object AiContextBuilder {
             body
         } else {
             val room = (available - TRUNCATION_SUFFIX.length).coerceAtLeast(0)
-            body.take(room) + TRUNCATION_SUFFIX
+            // Bug-1 M6 fix (#123): take(room) 用 char count 切割,如果 room 落在
+            // surrogate pair 中间会产生 invalid UTF-16 (lone high surrogate)。
+            // 检测 room 位置是否是 high surrogate,如是回退 1 char 让 pair 完整。
+            val safeRoom = if (room > 0 && room < body.length &&
+                body[room - 1].isHighSurrogate()
+            ) room - 1 else room
+            body.take(safeRoom) + TRUNCATION_SUFFIX
         }
         return header + clipped
     }

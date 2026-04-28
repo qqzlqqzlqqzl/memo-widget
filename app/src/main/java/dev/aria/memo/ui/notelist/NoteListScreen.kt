@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Psychology
@@ -279,6 +280,15 @@ private fun NoteListBody(
             onValueChange = onQueryChange,
             label = { Text("搜索笔记") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            // Bug-2 #154 fix: query 非空时显示清空按钮 (X icon trailing)。
+            // 用户没办法快速清空时常常不得不全选+删除,体验糟。
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(Icons.Filled.Close, contentDescription = "清空搜索")
+                    }
+                }
+            } else null,
             singleLine = true,
             shape = dev.aria.memo.ui.theme.MemoShapes.button,
             modifier = Modifier

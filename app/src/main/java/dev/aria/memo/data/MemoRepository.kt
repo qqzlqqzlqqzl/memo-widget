@@ -131,6 +131,9 @@ open class MemoRepository(
     }
 
     suspend fun recentEntries(limit: Int = 3): MemoResult<List<MemoEntry>> {
+        // Data-1 R10 fix (#110): limit<=0 guard 统一,避免 DAO LIMIT 0 query
+        // 行为依赖 SQLite 实现 (有时 LIMIT 0 = 全量,有时 = empty)。
+        if (limit <= 0) return MemoResult.Ok(emptyList())
         val config = settings.current()
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "PAT/owner/repo missing")
@@ -236,7 +239,8 @@ open class MemoRepository(
      * markdown front matter so it round-trips through GitHub, marks the row
      * dirty, and enqueues a push. No-op if the file isn't in Room yet.
      */
-    suspend fun togglePin(path: String, pinned: Boolean) {
+    suspend fun togglePin(path: String, pinned: Boolean): MemoResult<Unit> {
+        var found = false
         PathLocker.withLock(path) {
             // Data-1 R12 fix: the read-modify-write of the pin flag and the
             // content column must be atomic. Without `withTransaction`, a
@@ -246,6 +250,7 @@ open class MemoRepository(
             // on next sync.
             runInTx {
                 val existing = dao.get(path) ?: return@runInTx
+                found = true
                 val newContent = applyPinFrontMatter(existing.content, pinned)
                 dao.togglePin(
                     path = path,
@@ -254,11 +259,13 @@ open class MemoRepository(
                     updatedAt = System.currentTimeMillis(),
                 )
             }
-            SyncScheduler.enqueuePush(appContext)
+            if (found) SyncScheduler.enqueuePush(appContext)
         }
-        // P8 widget 自推：pin 变化会影响 widget 列表顺序（置顶条目上浮）。
-        // 放 withLock 外 —— refresh 不需要锁；放里面反而多占锁时间。
         WidgetRefresher.refreshAll(appContext)
+        // Bug-1 M10 fix (#131): 不存在路径返 NOT_FOUND 不再静默 Ok,
+        // caller 可以 dispatch UX 反馈。
+        return if (found) MemoResult.Ok(Unit)
+        else MemoResult.Err(ErrorCode.NOT_FOUND, "笔记不存在: $path")
     }
 
     companion object {
@@ -498,6 +505,8 @@ open class MemoRepository(
      * when PAT/owner/repo are missing so the widget can prompt the user.
      */
     suspend fun recentEntriesAcrossDays(limit: Int = 3): MemoResult<List<DatedMemoEntry>> {
+        // Data-1 R10 fix (#110) — 同 recentEntries: limit<=0 早 return。
+        if (limit <= 0) return MemoResult.Ok(emptyList())
         val config = settings.current()
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "PAT/owner/repo missing")

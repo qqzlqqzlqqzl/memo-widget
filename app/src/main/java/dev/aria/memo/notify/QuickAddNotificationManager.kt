@@ -25,7 +25,10 @@ import dev.aria.memo.EditActivity
  */
 object QuickAddNotificationManager {
 
-    const val NOTIFICATION_ID = 1001
+    // Bug-1 M17 fix (#142): 1001 是常见 hash collision 区, event uid.hashCode
+    // 极少正好等于但仍存在风险; 改用高位常量,event hashCode 默认落在 0 附近
+    // 几乎绝不会撞。Int.MIN_VALUE+1001 还是合法 notification id。
+    const val NOTIFICATION_ID = Int.MIN_VALUE + 1001
 
     /** Post (or refresh) the ongoing quick-add notification. */
     fun show(context: Context) {

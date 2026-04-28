@@ -53,7 +53,11 @@ class GitHubOAuthClient(
             val response = httpClient.post(DEVICE_CODE_URL) {
                 accept(ContentType.Application.Json)
                 contentType(ContentType.Application.FormUrlEncoded)
-                setBody("client_id=$clientId&scope=$SCOPE")
+                // Bug-1 M3 fix (#116): URL-encode form fields. clientId / scope
+                // 含特殊字符 (如 base64 padding `=` / 空格 / `+`) 时拼字符串会让
+                // GitHub 解错。java.net.URLEncoder.encode 用 application/x-www-form-urlencoded
+                // 编码空格→`+`、保留字符→%hex,正是 FormUrlEncoded 期望的格式。
+                setBody("client_id=${urlEncode(clientId)}&scope=${urlEncode(SCOPE)}")
             }
             val body = response.bodyAsText()
             if (!response.status.value.isSuccess()) {
@@ -140,9 +144,9 @@ class GitHubOAuthClient(
             accept(ContentType.Application.Json)
             contentType(ContentType.Application.FormUrlEncoded)
             setBody(
-                "client_id=$clientId" +
-                    "&device_code=$deviceCode" +
-                    "&grant_type=$GRANT_TYPE",
+                "client_id=${urlEncode(clientId)}" +
+                    "&device_code=${urlEncode(deviceCode)}" +
+                    "&grant_type=${urlEncode(GRANT_TYPE)}",
             )
         }
         val body = response.bodyAsText()
@@ -218,6 +222,10 @@ class GitHubOAuthClient(
         const val ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
         const val GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
         const val SCOPE = "repo"
+
+        /** Bug-1 M3 fix (#116): URLEncoder.encode 用 UTF-8 + form-urlencoded 规则。 */
+        fun urlEncode(s: String): String =
+            java.net.URLEncoder.encode(s, "UTF-8")
         const val MIN_INTERVAL_SECONDS = 1
         const val SLOW_DOWN_BUMP_SECONDS = 5
         const val DEFAULT_EXPIRES_IN_SECONDS = 900

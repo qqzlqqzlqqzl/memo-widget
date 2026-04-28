@@ -333,7 +333,9 @@ private fun DaySheet(
         }
         if (summary.memos.isNotEmpty()) {
             item { MemoSectionHeader(text = "备忘") }
-            items(summary.memos.size, key = { "m-${summary.memos[it].time}" }) { idx ->
+            // Bug-1 M9 fix (#129): 同一分钟两条 memo 共享 time key,LazyColumn key
+            // 碰撞会让 Compose 错乱重用 cell。改 idx 与 time 联合 (idx 全局唯一)。
+            items(summary.memos.size, key = { idx -> "m-$idx-${summary.memos[idx].time}" }) { idx ->
                 val m = summary.memos[idx]
                 MemoCard(accentColor = MaterialTheme.colorScheme.primary) {
                     Text(
