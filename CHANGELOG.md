@@ -8,6 +8,147 @@
 
 ---
 
+## [v0.12.2-p8 → v0.12.17-p8] - 2026-04-27 → 2026-04-29
+
+P8.1 punch-list closeout + P9-revisit campaign. ~16 incremental tagged
+releases (v0.12.2-p8 through v0.12.17-p8, versionCode 14 through 30)
+that closed the 10 originally-open P8.1 issues plus ~150 closed-but-
+deferred items the previous "won't fix → P9" wave shouldn't have left
+behind. Each tag has its own GitHub Release with its own per-fix
+breakdown; this CHANGELOG entry rolls them up by theme.
+
+### Added
+
+- **First-launch onboarding sheet** (#144): 3-slide AlertDialog overlay
+  on first install — explains the GitHub-backed model + routes to
+  Settings.
+- **Persistent offline banner** (#158): `ConnectivityObserver` wraps
+  `ConnectivityManager.NetworkCallback`; `OfflineBanner` shows
+  "离线中 · N 条待同步" above the SyncBanner when the network is down.
+- **TagIndexer.Cache**: per-VM memo for tag extraction (#124).
+- **Composite indices**: `note_files (isPinned, date)`,
+  `events (startEpochMs, endEpochMs)`, `single_notes (isPinned, date,
+  time)`. Schema 8 → 9 migration `MIGRATION_8_9` (#303).
+- **MigrationDefaultsTest**: tripwire that reads `AppDatabase.kt` and
+  asserts every historical `DEFAULT 0` survives (#301).
+- **CI**: `dependency-graph` job on master pushes (Dependabot vuln
+  scanner, #272).
+
+### Changed — bug fixes
+
+- IcsCodec accepts UTC `Z`, TZID-anchored, floating, and date-only
+  DTSTART forms (#106). Previously TZID `DTSTART;TZID=…:20260427T140000`
+  silently dropped the entire VEVENT.
+- `reminderMinutesBefore` round-trips via `X-MEMO-REMINDER-MINUTES`
+  X-property in the .ics body — survives cross-device sync (#308).
+- Pin parse unified on `FrontMatterCodec.parse` — removed the
+  `MemoRepository.readPinnedFromFrontMatter` parallel reader that
+  tolerated quoted values while the codec rejected them (#105).
+- `FrontMatterCodec.parse` strips UTF-8 BOM + leading blank lines
+  before the YAML fence gate (#139).
+- `PushWorker` retries with fresh credentials on PAT change via new
+  `SyncScheduler.enqueuePushAfterCredentialChange` (REPLACE policy,
+  #113).
+- `EventEditDialog` opens an AlertDialog confirm before deleting
+  — misclick is no longer a 1-second permanent delete (#182).
+- Pull / Push workers track `roomChanged` and only fire
+  `WidgetRefresher` when at least one mutation landed (#297).
+- `TodayWidget` short-circuits on `isConfigured` before any Room read
+  (#299) and includes today's single-notes alongside legacy day-files
+  (#331).
+- `EditViewModel.save` rolls back the optimistic user turn AND restores
+  the input field on Err for retry without re-typing (#108).
+- `AiChat` auto-scroll only when user is already at the bottom — no
+  more force-scroll yanking the user out of history (#169).
+- `ServiceLocator.init` synchronized double-checked locking (#330).
+
+### Changed — perf
+
+- `NoteListViewModel`: split combine pipeline so `_query` /
+  `_refreshing` no longer re-trigger `parseEntries`; per-VM memo caches
+  for `parseEntries` and `buildPreview` (#122).
+- `TagIndexer`: per-path / per-uid cache; only modified bodies re-run
+  `TAG_REGEX` (#124).
+- `CalendarViewModel`: split combine into `eventBlock` (allEvents only)
+  + `noteMarkers` (allNotes-derived); note writes don't re-expand RRULE
+  occurrences (#130).
+- `MemoRepository.recentEntriesAcrossDays` pool floor bumped to 100;
+  `observeAll()` fallback essentially dead code (#309).
+- `PullBudget` switched to `AtomicInteger`; `consume()` is a CAS loop;
+  `tightenFromHeader()` ready for `X-RateLimit-Remaining` (#314).
+- Widget `itemId` via FNV-1a 64-bit instead of 32-bit `String.hashCode`
+  — removes row-recycle flicker risk (#319).
+- `MarkdownRenderer` regexes hoisted to top-level vals (#311).
+- `HelpScreen` uses `LazyRenderMarkdown` for ~20 KB user guide (#176).
+- Three list VMs use `SharingStarted.WhileSubscribed(5_000L)` (#322).
+- `BootReceiver` / `EventAlarmReceiver` use `Dispatchers.IO` (#320).
+- `WidgetRefresher` per-target accumulation: `refreshMemo` /
+  `refreshToday` / `refreshAll`; EventRepository writes only refresh
+  Today (#300).
+- Save paths use `refreshAllNow` (inline) so screen-off mid-debounce
+  can't lose the updateAll (#305).
+- `GlanceWidgetUpdater` hoists MemoWidget / TodayWidget to singleton
+  vals (#133).
+
+### Changed — UX / a11y
+
+- `Settings`: inline validation for PAT, provider URL (loopback http
+  allowed for local Ollama, #137), model, API key (#140).
+- Search field shape switched to pill — reads as M3 SearchBar (#254).
+- `#`-prefix search queries filter by tag (#199).
+- `MemoEmptyState` switched to `secondaryContainer` + 56/28dp (#237).
+- `OAuthSignInDialog`: 复制 → `OutlinedButton`, 打开浏览器 stays
+  filled (#248).
+- `MarkdownToolbar` split 10 IconButtons into three groups (#249).
+- `SyncBanner` leading icon + bodyMedium (#229).
+- `Calendar` marker dot 4dp → 6dp (#243).
+- `TagList` row counts wrapped in pill (#244).
+- `SingleNoteRow` trailing `MoreVert` for the long-press menu (#196).
+- `TagListScreen` `LargeTopAppBar` only on tree view (#235).
+- `Tag` expand state survives tab swaps (#167).
+- Splash screen on Android 12+ uses launcher foreground icon (#253).
+- `DayCell` semantics contentDescription / 48dp tap slot / alpha 0.6
+  for out-of-month (#226 / #228 / #230).
+- AppNav respects `Settings.Global.ANIMATOR_DURATION_SCALE` (#232).
+- TodayWidget time/body use `defaultWeight + maxLines = 2` (#234).
+
+### Changed — security
+
+- `androidx.security:security-crypto` 1.1.0-alpha06 → 1.1.0 (#135).
+- `AiClient` allows loopback http for local Ollama / vLLM (#137).
+- AndroidManifest uses `dataExtractionRules` + `fullBackupContent`
+  instead of bare deprecated `allowBackup`.
+
+### Removed
+
+- `MemoRepository.readPinnedFromFrontMatter` (#105).
+- `EditViewModel`'s deprecated 3-arg legacy constructor (#321).
+- Hard-coded `widthIn(max = 320.dp)` on AiChat bubbles (#227).
+- Hard-coded 88dp FAB gutter constant (#241).
+
+### Architecture
+
+- `EditViewModel` accepts injected `currentConfig` + `loadBodyForPath`
+  helpers — tests now reach the same codepath as production (#323).
+- `ui/EditViewModel.kt` + `EditScreen.kt` → `ui/edit/`;
+  `ui/SettingsViewModel.kt` + `SettingsScreen.kt` → `ui/settings/`
+  (#326).
+
+### Documentation
+
+- `HANDOFF.md` now carries "数据模型设计选择" explaining why
+  `note_files` has no `tombstoned` column (#306).
+
+### Build / lint
+
+- `versionCode` 13 → 30, `versionName` 0.12.1 → 0.12.17.
+- Lint: 0 errors, 0 actionable warnings (only deferred dep-update
+  notices — Kotlin / Compose BOM / AGP / Ktor / Glance all coupled and
+  tracked as a single coordinated upgrade wave).
+- CI gained `dependency-graph` job for Dependabot vuln scanning.
+
+---
+
 ## [v0.12.1-p8] - 2026-04-24
 
 Widget 重做 + 全链路自动刷新。versionCode 13。
