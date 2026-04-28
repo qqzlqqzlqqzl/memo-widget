@@ -7,6 +7,22 @@ import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
 
 /**
+ * **Kept as the contract skeleton** — production widgets actually wire
+ * their 🔄 buttons to `ToastingRefreshMemoAction` /
+ * `ToastingRefreshTodayAction` (see `MemoWidgetContent.kt` /
+ * `TodayWidgetContent.kt`), which add a "已刷新" Toast on top of
+ * `updateAll`. The plain classes in this file are kept because:
+ *  - `WidgetP8GuardTest` and `MemoWidgetIntegrationTest` reference them
+ *    as a constructibility / lint smoke ("a non-Toasting refresh path
+ *    exists and doesn't throw") so removing them would force a same-day
+ *    rewrite of those tests.
+ *  - Future variants (e.g. a config-screen preview that refreshes
+ *    without a Toast pop) can adopt these directly.
+ *
+ * Fixes #329 (Agent 6 W-1): documented as test-harness path rather than
+ * deleted — removing would churn the existing test contract without
+ * shipping any user-visible value.
+ *
  * P8 —— Widget 手动刷新的 Glance Action Callback。
  *
  * 为什么需要独立的 ActionCallback：
