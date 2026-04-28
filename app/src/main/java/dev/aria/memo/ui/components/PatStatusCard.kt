@@ -144,7 +144,13 @@ private fun SettingsUiState.toVisual(): PatStatusVisual {
     }
     return when (val s = patStatus) {
         is PatStatus.Unknown -> PatStatusVisual(
-            headline = "✓ 配置已就绪",
+            // Fixes #247 (UI-A #17): the ✓ / 🔄 unicode glyphs were
+            // dropping to ⬜ on devices whose system font (notably some
+            // OPPO/Vivo skins) lacked U+2713 / U+1F504 in their fallback
+            // chain. The status now leans on the [glyph] Icon slot
+            // alone — Material Icons ship inside the app so they
+            // render identically across vendors.
+            headline = "配置已就绪",
             detail = "字段都填了。点「重新验证」可以确认 PAT 是否仍然有效。",
             accent = mute,
             glyph = Icons.AutoMirrored.Filled.HelpOutline,
@@ -152,7 +158,7 @@ private fun SettingsUiState.toVisual(): PatStatusVisual {
             actions = listOf(PatAction(PatActionKind.Verify, "重新验证")),
         )
         is PatStatus.Verifying -> PatStatusVisual(
-            headline = "🔄 正在验证 PAT…",
+            headline = "正在验证 PAT…",
             detail = "向 GitHub 发了一次 contents 请求，几秒就回来。",
             accent = mute,
             glyph = null,
@@ -160,7 +166,7 @@ private fun SettingsUiState.toVisual(): PatStatusVisual {
             actions = emptyList(),
         )
         is PatStatus.Valid -> PatStatusVisual(
-            headline = "✓ PAT 状态：有效",
+            headline = "PAT 状态：有效",
             detail = "GitHub 接受了这枚 PAT，sync 通道已通。",
             accent = ok,
             glyph = Icons.Filled.CheckCircle,

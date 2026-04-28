@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
@@ -520,7 +522,7 @@ private fun SettingsContent(
             if (state.isSaving) {
                 CircularProgressIndicator(
                     strokeWidth = 2.dp,
-                    modifier = Modifier.height(18.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             } else {
                 Text("保存")
@@ -544,7 +546,7 @@ private fun SettingsContent(
             if (state.isSwitchingAccount) {
                 CircularProgressIndicator(
                     strokeWidth = 2.dp,
-                    modifier = Modifier.height(18.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             } else {
                 Text("切换 GitHub 账号")
@@ -556,9 +558,16 @@ private fun SettingsContent(
             enabled = state.isConfigured,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Filled.Edit, contentDescription = null)
-            Spacer(Modifier.height(0.dp))
-            Text("  立即写一条", modifier = Modifier.padding(start = MemoSpacing.xs))
+            // Fixes #246 (UI-A #16): use ButtonDefaults.IconSpacing
+            // (8dp, the M3 standard) instead of the full-width spacer
+            // and double-space-prefix hack the original layout used.
+            Icon(
+                imageVector = Icons.Filled.Edit,
+                contentDescription = null,
+                modifier = Modifier.size(androidx.compose.material3.ButtonDefaults.IconSize),
+            )
+            Spacer(Modifier.width(androidx.compose.material3.ButtonDefaults.IconSpacing))
+            Text("立即写一条")
         }
 
         AiConfigSection(
@@ -661,7 +670,7 @@ private fun AiConfigSection(
                     if (state.isSavingAi) {
                         CircularProgressIndicator(
                             strokeWidth = 2.dp,
-                            modifier = Modifier.height(18.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     } else {
                         Text("保存 AI 配置")
@@ -675,7 +684,7 @@ private fun AiConfigSection(
                     if (state.isTestingAi) {
                         CircularProgressIndicator(
                             strokeWidth = 2.dp,
-                            modifier = Modifier.height(18.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     } else {
                         Text("测试连接")
