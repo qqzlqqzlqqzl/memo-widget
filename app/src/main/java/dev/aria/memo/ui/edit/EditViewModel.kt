@@ -7,7 +7,9 @@ import androidx.lifecycle.viewModelScope
 import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoRepository
 import dev.aria.memo.data.MemoResult
+import dev.aria.memo.data.AppConfig
 import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.SettingsStore
 import dev.aria.memo.data.SingleNoteRepository
 import dev.aria.memo.data.local.SingleNoteEntity
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +49,12 @@ private typealias UpdateSingleNote = suspend (String, String) -> MemoResult<Sing
 private typealias LoadSingleNote = suspend (String) -> SingleNoteEntity?
 private typealias DeleteSingleNote = suspend (String) -> MemoResult<Unit>
 
+/** Read the current [AppConfig] (for filePath resolution). */
+private typealias CurrentConfig = suspend () -> AppConfig
+
+/** Fetch the cached body for a given file path, null when nothing cached. */
+private typealias LoadBodyForPath = suspend (String) -> String?
+
 class EditViewModel @VisibleForTesting internal constructor(
     // Fixes #321 (Arch-1 #9): no longer captured into a private field —
     // production save() uses createSingleNote/updateSingleNote
@@ -61,6 +69,14 @@ class EditViewModel @VisibleForTesting internal constructor(
     private val updateSingleNote: UpdateSingleNote,
     private val loadSingleNote: LoadSingleNote,
     private val deleteSingleNote: DeleteSingleNote = { MemoResult.Err(ErrorCode.UNKNOWN, "not wired") },
+    // Fixes #323 (Arch-1 #7): inject the two ServiceLocator hits that
+    // prime/toggleChecklist used to access directly. Tests inject fakes
+    // through the primary constructor; the production ctor wires them
+    // to the real ServiceLocator-backed implementations.
+    private val currentConfig: CurrentConfig = {
+        AppConfig(pat = "", owner = "", repo = "")
+    },
+    private val loadBodyForPath: LoadBodyForPath = { null },
     private val noteUid: String? = null,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : ViewModel() {
@@ -69,6 +85,7 @@ class EditViewModel @VisibleForTesting internal constructor(
     constructor(
         repository: MemoRepository,
         singleNoteRepo: SingleNoteRepository,
+        settingsStore: SettingsStore,
         noteUid: String? = null,
     ) : this(
         // appendToday omitted — uses the parameter default, no longer
@@ -78,6 +95,8 @@ class EditViewModel @VisibleForTesting internal constructor(
         updateSingleNote = { uid, body -> singleNoteRepo.update(uid, body) },
         loadSingleNote = { uid -> singleNoteRepo.get(uid) },
         deleteSingleNote = { uid -> singleNoteRepo.delete(uid) },
+        currentConfig = { settingsStore.current() },
+        loadBodyForPath = { path -> repository.getContentForPath(path) },
         noteUid = noteUid,
     )
 
@@ -167,13 +186,17 @@ class EditViewModel @VisibleForTesting internal constructor(
     fun prime(extraPath: String?, extraBody: String?) {
         if (noteUid != null) return
         viewModelScope.launch {
-            val config = ServiceLocator.settingsStore.current()
+            // Fixes #323 (Arch-1 #7): use injected helpers instead of
+            // ServiceLocator.* so tests reach the same codepath as
+            // production. The default ctor values resolve to the real
+            // SettingsStore / MemoRepository in production.
+            val config = currentConfig()
             val resolvedPath = extraPath?.takeIf { it.isNotBlank() }
                 ?: config.filePathFor(java.time.LocalDate.now())
             // Fixes #56 (P6.1.1): go through the repository instead of the
             // DAO so UI → Repository → DAO layering is preserved.
             val resolvedBody = extraBody
-                ?: ServiceLocator.repository.getContentForPath(resolvedPath)
+                ?: loadBodyForPath(resolvedPath)
                 ?: ""
             loadFor(resolvedPath, resolvedBody)
         }
@@ -273,7 +296,9 @@ class EditViewModel @VisibleForTesting internal constructor(
                 is MemoResult.Err -> when (res.code) {
                     ErrorCode.CONFLICT -> {
                         // Fixes #56 (P6.1.1): repository delegate.
-                val latest = ServiceLocator.repository.getContentForPath(currentPath).orEmpty()
+                        // Fixes #323 (Arch-1 #7): injected loader, no
+                        // direct ServiceLocator hit.
+                        val latest = loadBodyForPath(currentPath).orEmpty()
                         _body.value = latest
                         _state.value = SaveState.Error(
                             ErrorCode.CONFLICT,
@@ -354,8 +379,9 @@ class EditViewModel @VisibleForTesting internal constructor(
                         "Unknown ViewModel class: $modelClass"
                     }
                     return EditViewModel(
-                        ServiceLocator.repository,
-                        ServiceLocator.singleNoteRepo,
+                        repository = ServiceLocator.repository,
+                        singleNoteRepo = ServiceLocator.singleNoteRepo,
+                        settingsStore = ServiceLocator.settingsStore,
                         noteUid = noteUid,
                     ) as T
                 }
