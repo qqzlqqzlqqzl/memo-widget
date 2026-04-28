@@ -480,10 +480,22 @@ private fun BulletListBox(items: List<String>) {
     }
 }
 
+// Fixes #311 (Perf-1 M2): hoist every Regex used by the help renderer
+// to top-level vals so they're compiled exactly once at class load,
+// not on every paragraph or every loop iteration. The previous code
+// created 4–6 Regex objects per body paragraph, all on Main during
+// the first frame of the help screen.
+private val BULLET_DASH_REGEX = Regex("^([-*])\\s+(.+)$")
+private val BULLET_NUMBERED_REGEX = Regex("^(\\d+)\\.\\s+(.+)$")
+private val INLINE_LINK_REGEX = Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)")
+private val INLINE_CODE_REGEX = Regex("`([^`]+)`")
+private val INLINE_BOLD_REGEX = Regex("\\*\\*([^*]+)\\*\\*")
+private val INLINE_ITALIC_REGEX = Regex("(?<![*_])[*_]([^*_\n]+)[*_](?![*_])")
+
 private fun extractBullet(raw: String): Pair<String, String> {
-    val dashMatch = Regex("^([-*])\\s+(.+)$").matchEntire(raw)
+    val dashMatch = BULLET_DASH_REGEX.matchEntire(raw)
     if (dashMatch != null) return "•" to dashMatch.groupValues[2]
-    val numberedMatch = Regex("^(\\d+)\\.\\s+(.+)$").matchEntire(raw)
+    val numberedMatch = BULLET_NUMBERED_REGEX.matchEntire(raw)
     if (numberedMatch != null) return "${numberedMatch.groupValues[1]}." to numberedMatch.groupValues[2]
     return "•" to raw
 }
@@ -510,12 +522,13 @@ internal fun buildInlineAnnotatedString(
     // Strip zero-width characters that sometimes sneak into anchors.
     var remaining = raw
     while (remaining.isNotEmpty()) {
-        // Explicit link: [text](url)
-        val linkMatch = Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)").find(remaining)
-        val codeMatch = Regex("`([^`]+)`").find(remaining)
-        val boldMatch = Regex("\\*\\*([^*]+)\\*\\*").find(remaining)
+        // All four regexes are top-level vals (#311) so they're compiled
+        // once at class load, not per-loop-iteration.
+        val linkMatch = INLINE_LINK_REGEX.find(remaining)
+        val codeMatch = INLINE_CODE_REGEX.find(remaining)
+        val boldMatch = INLINE_BOLD_REGEX.find(remaining)
         // Italic: match * or _ but avoid bold (`**` handled first via priority).
-        val italicMatch = Regex("(?<![*_])[*_]([^*_\n]+)[*_](?![*_])").find(remaining)
+        val italicMatch = INLINE_ITALIC_REGEX.find(remaining)
 
         val candidates = listOfNotNull(
             linkMatch?.let { "link" to it.range.first },
