@@ -131,6 +131,9 @@ open class MemoRepository(
     }
 
     suspend fun recentEntries(limit: Int = 3): MemoResult<List<MemoEntry>> {
+        // Data-1 R10 fix (#110): limit<=0 guard 统一,避免 DAO LIMIT 0 query
+        // 行为依赖 SQLite 实现 (有时 LIMIT 0 = 全量,有时 = empty)。
+        if (limit <= 0) return MemoResult.Ok(emptyList())
         val config = settings.current()
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "PAT/owner/repo missing")
@@ -502,6 +505,8 @@ open class MemoRepository(
      * when PAT/owner/repo are missing so the widget can prompt the user.
      */
     suspend fun recentEntriesAcrossDays(limit: Int = 3): MemoResult<List<DatedMemoEntry>> {
+        // Data-1 R10 fix (#110) — 同 recentEntries: limit<=0 早 return。
+        if (limit <= 0) return MemoResult.Ok(emptyList())
         val config = settings.current()
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "PAT/owner/repo missing")
