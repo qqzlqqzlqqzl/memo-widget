@@ -47,10 +47,17 @@ fun MemoEmptyState(
             verticalArrangement = Arrangement.spacedBy(MemoSpacing.md),
             modifier = Modifier.padding(MemoSpacing.xxl),
         ) {
+            // Fixes #237 (UI-A #24): tertiaryContainer landed as a
+            // blue-purple disk on top of our green-leaning palette,
+            // reading as "look, an alert!" rather than "nothing here
+            // yet". Switched to secondaryContainer to keep the empty
+            // state in the app's own colour family. Disk + icon
+            // shrunk to the M3-recommended empty-state sizes (56dp /
+            // 28dp).
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                modifier = Modifier.size(72.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(56.dp),
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -59,8 +66,8 @@ fun MemoEmptyState(
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.size(36.dp),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(28.dp),
                     )
                 }
             }

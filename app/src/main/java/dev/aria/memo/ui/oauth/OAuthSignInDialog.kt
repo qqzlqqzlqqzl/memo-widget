@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -153,7 +155,11 @@ private fun WaitingForUserContent(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Button(
+        // Fixes #248 (UI-A #29): "打开浏览器" is the primary call to
+        // action — the OAuth flow can't progress without it — so it
+        // gets the filled Button. "复制" is a side-helper and renders
+        // as OutlinedButton for proper M3 hierarchy.
+        OutlinedButton(
             onClick = { copyToClipboard(ctx, state.userCode) },
             modifier = Modifier.weight(1f),
         ) { Text("复制") }
@@ -167,9 +173,10 @@ private fun WaitingForUserContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // Fixes #233-style accidental ellipse: size = uniform 16dp.
         CircularProgressIndicator(
             strokeWidth = 2.dp,
-            modifier = Modifier.height(16.dp),
+            modifier = Modifier.size(16.dp),
         )
         Text(
             text = "等待授权中… (每 ${state.intervalSeconds}s 轮询，${state.expiresInSeconds}s 内有效)",
