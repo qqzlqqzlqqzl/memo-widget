@@ -301,24 +301,34 @@ private fun ChatMessageBubble(role: String, content: String) {
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Row(
+    // Fixes #227 (UI-A #19): the previous hard-coded 320dp cap meant
+    // a 400dp+ tablet kept the bubble at phone width, leaving the
+    // transcript hugging the leading edge of the screen. Cap at 85%
+    // of the available row width so phone bubbles stay tight (≈320dp
+    // on a 360dp-wide phone) and tablet bubbles grow with the device.
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
-        Surface(
-            shape = MemoShapes.card,
-            color = bubbleColor,
-            modifier = Modifier.widthIn(max = 320.dp),
+        val cap = maxWidth * 0.85f
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
         ) {
-            Text(
-                text = content,
-                style = MaterialTheme.typography.bodyMedium,
-                color = textColor,
-                modifier = Modifier.padding(
-                    horizontal = MemoSpacing.lg,
-                    vertical = MemoSpacing.md,
-                ),
-            )
+            Surface(
+                shape = MemoShapes.card,
+                color = bubbleColor,
+                modifier = Modifier.widthIn(max = cap),
+            ) {
+                Text(
+                    text = content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor,
+                    modifier = Modifier.padding(
+                        horizontal = MemoSpacing.lg,
+                        vertical = MemoSpacing.md,
+                    ),
+                )
+            }
         }
     }
 }

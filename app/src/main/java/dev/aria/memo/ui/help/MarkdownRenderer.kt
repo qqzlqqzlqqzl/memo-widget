@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -381,10 +383,18 @@ private fun CodeBlockBox(lang: String, content: String) {
 private fun TableBox(rows: List<List<String>>) {
     if (rows.isEmpty()) return
     val border = MaterialTheme.colorScheme.outlineVariant
+    // Fixes #251 (UI-A #30): wide tables (5+ columns) used to be
+    // squashed into 3-5dp per column on phones. Now the table is
+    // horizontally scrollable AND each column has a 80dp floor —
+    // either the full table fits or the user pans across it. The
+    // outer Column is the "page" for the border; the inner Row is
+    // what scrolls.
+    val hScroll = androidx.compose.foundation.rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, border, RoundedCornerShape(4.dp)),
+            .border(1.dp, border, RoundedCornerShape(4.dp))
+            .horizontalScroll(hScroll),
     ) {
         rows.forEachIndexed { index, row ->
             val isHeader = index == 0
@@ -395,7 +405,6 @@ private fun TableBox(rows: List<List<String>>) {
             }
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .background(background),
             ) {
                 row.forEachIndexed { cellIndex, cell ->
@@ -408,7 +417,7 @@ private fun TableBox(rows: List<List<String>>) {
                     }
                     Box(
                         modifier = Modifier
-                            .weight(1f)
+                            .widthIn(min = 80.dp)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                     ) {
                         // Fix-7 #1: themed link + code-bg colors.

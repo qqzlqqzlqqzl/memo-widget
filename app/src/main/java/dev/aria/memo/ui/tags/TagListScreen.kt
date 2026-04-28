@@ -21,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -71,21 +72,30 @@ fun TagListScreen(
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = {
-                    Text(
-                        text = selectedPath?.let { "#$it" } ?: "标签",
-                    )
-                },
-                navigationIcon = {
-                    if (selectedPath != null) {
+            // Fixes #235 (UI-A #23): the tree view (selectedPath ==
+            // null) is a top-level tab entry and earns the 140dp
+            // hero LargeTopAppBar; the per-tag detail view is a
+            // sub-page and uses a compact TopAppBar so the bar
+            // doesn't dominate before the user can read any entries.
+            if (selectedPath == null) {
+                LargeTopAppBar(
+                    title = { Text(text = "标签") },
+                    scrollBehavior = scrollBehavior,
+                )
+            } else {
+                TopAppBar(
+                    title = { Text(text = "#$selectedPath") },
+                    navigationIcon = {
                         IconButton(onClick = { selectedPath = null }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回标签树")
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "返回标签树",
+                            )
                         }
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
+                    },
+                    scrollBehavior = scrollBehavior,
+                )
+            }
         },
     ) { inner ->
         Column(

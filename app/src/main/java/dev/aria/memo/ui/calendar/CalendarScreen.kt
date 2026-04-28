@@ -350,7 +350,12 @@ private fun DaySheet(
                 }
             }
         }
-        item { Spacer(Modifier.height(88.dp)) } // space for FAB
+        // Fixes #241 (UI-A #26): the trailing spacer used to be a
+        // hard-coded 88dp magic number. Centralised into FAB_GUTTER
+        // (FAB height token + breathing room) at the file scope so
+        // any future FAB-size change updates one constant instead of
+        // a stray literal.
+        item { Spacer(Modifier.height(FAB_GUTTER)) }
     }
 }
 
@@ -398,3 +403,12 @@ private fun EventRow(occ: EventOccurrence, onClick: () -> Unit) {
         }
     }
 }
+
+/**
+ * Trailing gutter under the day-sheet's last entry so the bottom row
+ * doesn't sit underneath the floating "+ 新事件" FAB. Material 3's
+ * standard FAB container is 56dp; 32dp on top of that gives a clean
+ * visual gap. Centralised here so a future FAB-size bump only needs
+ * one change. Fixes #241 (UI-A #26).
+ */
+private val FAB_GUTTER = 56.dp + 32.dp
