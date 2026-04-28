@@ -7,6 +7,7 @@ import dev.aria.memo.data.local.AppDatabase
 import dev.aria.memo.data.local.EventDao
 import dev.aria.memo.data.local.NoteDao
 import dev.aria.memo.data.local.SingleNoteDao
+import dev.aria.memo.data.sync.ConnectivityObserver
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
@@ -32,6 +33,7 @@ object ServiceLocator {
     @Volatile private var _db: AppDatabase? = null
     @Volatile private var _aiSettings: AiSettingsStore? = null
     @Volatile private var _aiClient: AiClient? = null
+    @Volatile private var _connectivity: ConnectivityObserver? = null
 
     /**
      * P8：暴露应用级 Context 给数据层 hook（特别是 [dev.aria.memo.data.widget.WidgetRefresher]）。
@@ -88,6 +90,7 @@ object ServiceLocator {
         _singleNoteRepo = singleNoteRepo
         _aiSettings = aiSettings
         _aiClient = aiClient
+        _connectivity = ConnectivityObserver.fromContext(appContext)
     }
 
     // --------------------------------------------------------------------------------
@@ -115,6 +118,8 @@ object ServiceLocator {
     val singleNoteRepo: SingleNoteRepository get() = requireNotNull(_singleNoteRepo) { "ServiceLocator.init() not called" }
     val aiSettings: AiSettingsStore get() = requireNotNull(_aiSettings) { "ServiceLocator.init() not called" }
     val ai: AiClient get() = requireNotNull(_aiClient) { "ServiceLocator.init() not called" }
+    val connectivity: ConnectivityObserver
+        get() = requireNotNull(_connectivity) { "ServiceLocator.init() not called" }
 
     // --------------------------------------------------------------------------------
     // Legacy method-style API. Kept so in-flight calls don't break; marked

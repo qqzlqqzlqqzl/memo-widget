@@ -76,6 +76,14 @@ data class NoteListUiState(
     val items: List<NoteListUiItem> = emptyList(),
     val query: String = "",
     val isRefreshing: Boolean = false,
+    /**
+     * False when the platform [android.net.ConnectivityManager] reports no
+     * internet-capable network. Drives the "离线中 · N 条待同步" banner
+     * (#158 Bug-2 用户故事 8).
+     */
+    val isOnline: Boolean = true,
+    /** Count of rows still flagged dirty across legacy + single-note tables. */
+    val dirtyCount: Int = 0,
 ) {
     /** Legacy day-file groups extracted from [items] — kept for older consumers. */
     val groups: List<DayGroup>
@@ -192,9 +200,31 @@ class NoteListViewModel(
             (legacyItems + singleItems).sortedWith(ITEM_ORDER)
         }.flowOn(Dispatchers.Default)
 
+    /**
+     * Online/offline signal lifted from [ConnectivityObserver]. Optimistic
+     * `true` on first emission so a momentary "everything is offline" flash
+     * doesn't appear before the platform delivers the real state.
+     */
+    private val onlineFlow: Flow<Boolean> = ServiceLocator.connectivity.online
+
+    /**
+     * Total dirty rows across both note tables. Cheaper than a dedicated
+     * COUNT query because we already collect the underlying lists for the
+     * primary list rendering — the count is a trivial fold.
+     */
+    private val dirtyCountFlow: Flow<Int> = combine(legacyGroups, singleNotes) { files, singles ->
+        files.count { it.dirty } + singles.count { it.dirty }
+    }
+
     val state: StateFlow<NoteListUiState> =
-        combine(baseItems, _query, _refreshing) { items, q, r ->
-            NoteListUiState(items = items, query = q, isRefreshing = r)
+        combine(baseItems, _query, _refreshing, onlineFlow, dirtyCountFlow) { items, q, r, online, dirty ->
+            NoteListUiState(
+                items = items,
+                query = q,
+                isRefreshing = r,
+                isOnline = online,
+                dirtyCount = dirty,
+            )
         }.stateIn(viewModelScope, SharingStarted.Eagerly, NoteListUiState())
 
     private fun parsedEntriesCached(path: String, content: String, date: LocalDate): List<MemoEntry> {

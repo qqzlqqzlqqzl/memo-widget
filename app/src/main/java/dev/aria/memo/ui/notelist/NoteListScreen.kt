@@ -67,6 +67,7 @@ import dev.aria.memo.data.sync.SyncStatusBus
 import dev.aria.memo.ui.components.MemoCard
 import dev.aria.memo.ui.components.MemoEmptyState
 import dev.aria.memo.ui.components.MemoSectionHeader
+import dev.aria.memo.ui.components.OfflineBanner
 import dev.aria.memo.ui.components.ScrollAwareFab
 import dev.aria.memo.ui.theme.MemoSpacing
 import kotlinx.coroutines.launch
@@ -152,6 +153,13 @@ fun NoteListScreen(
                 .padding(inner)
                 .fillMaxSize(),
         ) {
+            // Fixes #158: persistent offline banner above the transient
+            // SyncBanner. Both render conditionally — clean state shows
+            // neither.
+            OfflineBanner(
+                isOnline = state.isOnline,
+                dirtyCount = state.dirtyCount,
+            )
             SyncBanner(status = syncStatus, onDismiss = { SyncStatusBus.clearError() })
             NoteListBody(
                 state = state,
