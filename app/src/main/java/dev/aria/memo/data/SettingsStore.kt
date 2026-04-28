@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.aria.memo.data.local.AppDatabase
+import dev.aria.memo.data.sync.SyncScheduler
 import dev.aria.memo.data.sync.SyncStatus
 import dev.aria.memo.data.sync.SyncStatusBus
 import dev.aria.memo.data.widget.WidgetRefresher
@@ -160,6 +161,25 @@ class SettingsStore(
         // 显示"先打开 app 配置 GitHub PAT"，已配置显示笔记列表。
         // 即便 isConfigured 没变（比如只改 branch），刷新也无副作用，统一 fire-and-forget。
         WidgetRefresher.refreshAll(context.applicationContext)
+
+        // Fixes #113 (Bug-1 H10): when the user finishes typing a fresh PAT
+        // (typically after a previous push hit 401 UNAUTHORIZED and parked
+        // the dirty queue), kick a push retry with the new credentials. We
+        // scope this strictly to "credentials actually changed AND the new
+        // config is push-eligible" — branch-only edits or clearing the PAT
+        // shouldn't fire a push.
+        val credentialsChanged =
+            patAfter != before.pat.trim() ||
+                after.owner != before.owner ||
+                after.repo != before.repo
+        if (credentialsChanged && after.isConfigured) {
+            // runCatching: in unit tests WorkManager isn't initialised; the
+            // production path (default WorkManagerInitializer) always has it.
+            // We don't want a missing test env to fail the credential write.
+            runCatching {
+                SyncScheduler.enqueuePushAfterCredentialChange(context.applicationContext)
+            }
+        }
     }
 
     /**

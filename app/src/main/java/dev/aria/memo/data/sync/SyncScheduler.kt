@@ -46,6 +46,27 @@ object SyncScheduler {
             .enqueueUniqueWork(PUSH_UNIQUE, PUSH_POLICY, request)
     }
 
+    /**
+     * Force a push retry with fresh credentials. Unlike [enqueuePush] this
+     * uses [ExistingWorkPolicy.REPLACE] so any worker already running against
+     * stale credentials (e.g. an expired PAT that 401'd) is cancelled and a
+     * new attempt starts immediately.
+     *
+     * Fixes #113 (Bug-1 H10): after the user updates an expired PAT in
+     * Settings, dirty rows would otherwise wait until the next note edit (or
+     * an external trigger) before being pushed. Calling this from the
+     * SettingsStore update path closes that gap — the new credentials hit
+     * the network within seconds.
+     */
+    fun enqueuePushAfterCredentialChange(context: Context) {
+        val request = OneTimeWorkRequestBuilder<PushWorker>()
+            .setConstraints(networkConstraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(PUSH_UNIQUE, ExistingWorkPolicy.REPLACE, request)
+    }
+
     /** One-shot pull triggered on app open / pull-to-refresh. */
     fun enqueuePullNow(context: Context) {
         val request = OneTimeWorkRequestBuilder<PullWorker>()
