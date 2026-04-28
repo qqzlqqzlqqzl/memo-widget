@@ -33,9 +33,9 @@ import dev.aria.memo.ui.theme.MemoTheme
 @Composable
 fun MemoSectionHeader(
     text: String,
+    modifier: Modifier = Modifier,
     leading: ImageVector? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
-    modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier

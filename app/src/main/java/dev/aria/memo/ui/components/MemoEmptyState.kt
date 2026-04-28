@@ -35,8 +35,8 @@ import dev.aria.memo.ui.theme.MemoTheme
 fun MemoEmptyState(
     icon: ImageVector,
     title: String,
-    subtitle: String? = null,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
 ) {
     Box(
         modifier = modifier.fillMaxSize(),

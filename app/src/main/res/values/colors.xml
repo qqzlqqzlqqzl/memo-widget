@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<!--
+  tools:ignore="UnusedResources" — Compose-only app; the legacy
+  XML colors below are kept as scaffolding for any future View-system
+  surface (e.g. a fragment that needs a static colour ref). All actual
+  rendering goes through MaterialTheme.colorScheme.* / MemoThemeColors.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="UnusedResources">
     <!-- Neutral palette used by the widget host background tint -->
     <color name="widget_background">#FFFAFAFA</color>
     <color name="widget_background_dark">#FF121212</color>

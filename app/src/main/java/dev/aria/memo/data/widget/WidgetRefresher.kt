@@ -48,6 +48,11 @@ import java.util.concurrent.atomic.AtomicReference
  *    换成绑定 testScheduler 的 TestScope，collector pipeline 会被重启到新
  *    scope 上，`advanceTimeBy(DEBOUNCE_MS + ε)` 能精确触发一次合并刷新。
  */
+// Lint StaticFieldLeak: lastContext only ever stores
+// `context.applicationContext` (set in refreshAll / refreshAllNow),
+// which lives for the full process. The singleton can't leak an
+// Activity / Service context.
+@android.annotation.SuppressLint("StaticFieldLeak")
 object WidgetRefresher {
 
     /**

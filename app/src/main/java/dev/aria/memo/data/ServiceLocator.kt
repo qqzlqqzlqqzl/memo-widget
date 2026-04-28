@@ -22,6 +22,12 @@ import kotlinx.serialization.json.Json
  * first line of each Worker, so even a cold-boot WorkManager invocation has
  * a live repository.
  */
+// Lint StaticFieldLeak: every Context-holding field below stores
+// `context.applicationContext`, never an Activity / Service context.
+// applicationContext lives for the full process lifetime, so retaining
+// it on the singleton can't leak. Suppressing at the object level keeps
+// the warnings out of CI without sprinkling per-field annotations.
+@android.annotation.SuppressLint("StaticFieldLeak")
 object ServiceLocator {
 
     @Volatile private var _settings: SettingsStore? = null

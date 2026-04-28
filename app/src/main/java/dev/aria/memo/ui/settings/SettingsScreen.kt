@@ -78,8 +78,8 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onOpenEditor: () -> Unit,
-    onOpenHelp: () -> Unit = {},
     modifier: Modifier = Modifier,
+    onOpenHelp: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }

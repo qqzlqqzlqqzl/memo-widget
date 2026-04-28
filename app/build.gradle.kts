@@ -14,8 +14,8 @@ android {
         applicationId = "dev.aria.memo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "0.12.15-p8"
+        versionCode = 29
+        versionName = "0.12.16-p8"
 
         // Fix-W3 / Fix-WidgetBdd: required for instrumented test discovery on
         // emulator (CI android-instrumented job) — without this the runner

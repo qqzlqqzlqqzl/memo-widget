@@ -3,8 +3,15 @@
   Fixes #9: full Chinese translation. Any new string added here must have a
   Chinese value; English defaults belong in values-en/strings.xml (not yet
   created — add when we actually ship a second locale).
+
+  tools:ignore="UnusedResources" — many of these are intentional scaffolding
+  for the deferred i18n migration tracked under #217 (P8.1 #6 in HANDOFF.md).
+  The Compose screens currently inline Chinese literals; once strings are
+  externalised to stringResource() calls, these placeholders pick up the
+  references without renaming work.
 -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="UnusedResources">
     <!-- App / launcher -->
     <string name="app_name">备忘</string>
 
