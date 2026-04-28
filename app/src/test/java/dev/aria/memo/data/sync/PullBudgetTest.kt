@@ -59,4 +59,58 @@ class PullBudgetTest {
         val budget = PullBudget()
         assertEquals(150, budget.remaining)
     }
+
+    @Test
+    fun `tightenFromHeader lowers the cap to match advertised remaining`() {
+        // Issue #314: GitHub responses carry X-RateLimit-Remaining; an
+        // unauthenticated client at 8/60 should see the budget shrink to
+        // 8 even though we constructed it with the default 150.
+        val budget = PullBudget(cap = 150)
+        budget.consume() // used = 1
+        budget.tightenFromHeader("8")
+        // capRef = used (1) + advertised (8) = 9; remaining = 9 - 1 = 8.
+        assertEquals(8, budget.remaining)
+    }
+
+    @Test
+    fun `tightenFromHeader never raises the cap`() {
+        val budget = PullBudget(cap = 50)
+        budget.tightenFromHeader("9999")
+        assertEquals(50, budget.remaining)
+    }
+
+    @Test
+    fun `tightenFromHeader ignores malformed values`() {
+        val budget = PullBudget(cap = 50)
+        budget.tightenFromHeader(null)
+        budget.tightenFromHeader("")
+        budget.tightenFromHeader("not-a-number")
+        budget.tightenFromHeader("-3")
+        assertEquals(50, budget.remaining)
+    }
+
+    @Test
+    fun `consume is atomic under parallel callers`() {
+        // Issue #314: simulate the future async path by hammering consume
+        // from many threads. The total successful consumes must equal the
+        // cap exactly — never less (lost increments) and never more
+        // (over-budget API calls).
+        val cap = 1000
+        val parallelism = 16
+        val budget = PullBudget(cap = cap)
+        val successes = java.util.concurrent.atomic.AtomicInteger(0)
+        val attempts = cap * 4
+        val perThread = attempts / parallelism
+        val threads = List(parallelism) {
+            Thread {
+                repeat(perThread) {
+                    if (budget.consume()) successes.incrementAndGet()
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        assertEquals(cap, successes.get())
+        assertTrue(budget.exhausted())
+    }
 }

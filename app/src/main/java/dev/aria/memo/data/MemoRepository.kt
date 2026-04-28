@@ -272,6 +272,14 @@ open class MemoRepository(
         private val HHMM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
         /**
+         * Floor for the [recentEntriesAcrossDays] file pool size — see the
+         * inline #309 explanation. 100 keeps the SQL pull well below the
+         * full-table size on any realistic user, while making the
+         * super-sparse fallback effectively dead code.
+         */
+        private const val MIN_RECENT_POOL_SIZE: Int = 100
+
+        /**
          * Strip a leading `---\n...\n---\n` YAML block (if any) from [text] and
          * return what remains. Delegates to [FrontMatterCodec.strip] — the codec
          * enforces the "only eat pin blocks with strict bool value" semantic so
@@ -489,14 +497,19 @@ open class MemoRepository(
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "PAT/owner/repo missing")
         }
-        if (limit <= 0) return MemoResult.Ok(emptyList())
         // Fixes #51 (P6.1.1): LIMIT pushdown. Each day-file carries multiple
         // `## HH:MM` entries, so SQL can't be limited to `:limit` entries —
-        // but asking Room for `limit * 2 + 1` FILES almost always yields
-        // enough entries to fill the widget on a single DB read instead
-        // of dragging the whole table into memory. Falls back to all files
-        // only if the pool doesn't produce enough entries (super-sparse case).
-        val fileLimit = limit * 2 + 1
+        // but a bounded pool of recent files almost always yields enough
+        // entries to fill the widget on a single DB read instead of pulling
+        // the whole table into memory.
+        //
+        // Reopen of #309 (Perf-1 M1): the previous pool of `limit * 2 + 1`
+        // (= 7 files for the default widget limit of 3) hit the fallback
+        // observeAll() any time a user had a sparse run of empty/short
+        // files. Bumped to a flat 100-file ceiling — still bounded, but
+        // in practice eliminates the full-table scan unless the user has
+        // 100 consecutive single-entry days that all parse to nothing.
+        val fileLimit = (limit * 2 + 1).coerceAtLeast(MIN_RECENT_POOL_SIZE)
         val recent = dao.observeRecent(fileLimit).first()
         val merged = mergeRecentAcrossDays(recent, limit)
         if (merged.size >= limit || recent.size < fileLimit) {
