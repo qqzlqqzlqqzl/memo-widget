@@ -48,11 +48,24 @@ class SettingsValidationTest {
     }
 
     @Test fun `provider URL without scheme is rejected`() {
-        assertEquals("URL 必须以 https:// 开头", validateProviderUrl("api.openai.com/v1"))
+        assertEquals(
+            "URL 必须以 https:// 开头（loopback http://localhost 也允许）",
+            validateProviderUrl("api.openai.com/v1"),
+        )
     }
 
     @Test fun `http (non-tls) provider URL is rejected`() {
-        assertEquals("URL 必须以 https:// 开头", validateProviderUrl("http://api.openai.com/v1"))
+        // Issue #137: cleartext to a remote host still blocked.
+        assertEquals(
+            "URL 必须以 https:// 开头（loopback http://localhost 也允许）",
+            validateProviderUrl("http://api.openai.com/v1"),
+        )
+    }
+
+    @Test fun `loopback http URL passes for local Ollama`() {
+        // Issue #137: local LLMs (Ollama / vLLM) shouldn't need TLS.
+        assertNull(validateProviderUrl("http://localhost:11434/v1/chat/completions"))
+        assertNull(validateProviderUrl("http://127.0.0.1:8080/v1"))
     }
 
     @Test fun `provider URL with whitespace is rejected`() {

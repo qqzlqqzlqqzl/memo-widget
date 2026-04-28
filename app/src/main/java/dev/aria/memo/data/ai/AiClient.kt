@@ -58,8 +58,13 @@ class AiClient(
         if (!config.isConfigured) {
             return MemoResult.Err(ErrorCode.NOT_CONFIGURED, "AI 尚未配置")
         }
-        // Fix-A2 (Sec-1 caveat): refuse plain HTTP to avoid Bearer apiKey leakage.
-        if (!config.providerUrl.startsWith("https://")) {
+        // Fix-A2 (Sec-1 caveat) + #137: refuse plain HTTP to avoid
+        // Bearer apiKey leakage on the wire — but allow loopback URLs
+        // (`http://localhost` / `http://127.0.0.1`) so users running a
+        // local Ollama / vLLM provider don't have to set up TLS just
+        // to hit their own machine. Anything else (cleartext to a
+        // remote host) still bounces with a clear error.
+        if (!isProviderUrlAcceptable(config.providerUrl)) {
             return MemoResult.Err(
                 ErrorCode.UNKNOWN,
                 "AI provider URL 必须以 https:// 开头（当前: ${config.providerUrl.take(20)}）",
@@ -133,5 +138,32 @@ class AiClient(
         } else {
             MemoResult.Err(ErrorCode.UNKNOWN, e::class.simpleName + ": " + (e.message ?: ""))
         }
+    }
+
+    /**
+     * Decide whether [url] is safe to send the API key over.
+     *  - `https://...` — allowed (TLS protects the Bearer header).
+     *  - `http://localhost` / `http://127.0.0.1` / `http://[::1]` — allowed
+     *    so Ollama / vLLM users running a local model on the same device
+     *    don't need to stand up TLS just to talk to their own loopback.
+     *  - anything else (e.g. `http://internal-proxy/v1`) — refused so the
+     *    API key can't leak in cleartext on a LAN.
+     *
+     * Fixes #137 (Sec-1 caveat). Visible-for-test so a unit can pin the
+     * loopback exception list without rebuilding a whole network stack.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun isProviderUrlAcceptable(url: String): Boolean {
+        if (url.startsWith("https://", ignoreCase = true)) return true
+        // Loopback-only http allowed.
+        return LOOPBACK_HTTP_PREFIXES.any { url.startsWith(it, ignoreCase = true) }
+    }
+
+    private companion object {
+        private val LOOPBACK_HTTP_PREFIXES = listOf(
+            "http://localhost",
+            "http://127.0.0.1",
+            "http://[::1]",
+        )
     }
 }

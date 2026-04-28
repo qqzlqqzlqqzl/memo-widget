@@ -481,12 +481,22 @@ class SettingsViewModel(
         internal fun validateProviderUrl(url: String): String? = when {
             url.isBlank() -> "Provider URL 不能为空"
             url.contains(' ') || url.contains('\t') -> "URL 不应包含空格"
-            !url.startsWith("https://", ignoreCase = true) ->
-                "URL 必须以 https:// 开头"
+            // Fixes #137 (Sec-1 caveat): same loopback exception
+            // AiClient.isProviderUrlAcceptable carries — local Ollama
+            // users shouldn't need TLS just to talk to 127.0.0.1.
+            !url.startsWith("https://", ignoreCase = true) &&
+                !LOOPBACK_HTTP_PREFIXES.any { url.startsWith(it, ignoreCase = true) } ->
+                "URL 必须以 https:// 开头（loopback http://localhost 也允许）"
             runCatching { java.net.URI(url).host }.getOrNull().isNullOrBlank() ->
                 "URL 看起来不是有效的网址"
             else -> null
         }
+
+        private val LOOPBACK_HTTP_PREFIXES = listOf(
+            "http://localhost",
+            "http://127.0.0.1",
+            "http://[::1]",
+        )
 
         @VisibleForTesting
         internal fun validateModelName(model: String): String? = when {
