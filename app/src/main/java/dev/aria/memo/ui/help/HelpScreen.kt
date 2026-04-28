@@ -1,13 +1,8 @@
 package dev.aria.memo.ui.help
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Info
@@ -107,21 +102,20 @@ fun HelpScreen(
                     modifier = Modifier.padding(MemoSpacing.xxxl),
                 )
                 else -> {
-                    // Medium fix: parseBlocks is ~20 KB + regex-heavy; memoize
-                    // so tab-switch recompositions don't re-parse the guide.
-                    val stable = content!!
-                    val rememberedSource = remember(stable) { stable }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = MemoSpacing.lg, vertical = MemoSpacing.md),
-                    ) {
-                        RenderMarkdown(
-                            source = rememberedSource,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+                    // Fixes #176 (Bug-2 Medium): the user guide is ~20 KB
+                    // and the previous Column + verticalScroll composed
+                    // every parsed block on the first frame. Switching to
+                    // LazyRenderMarkdown lets blocks compose lazily as
+                    // they enter the viewport — first-frame work scales
+                    // with viewport size, not document size.
+                    LazyRenderMarkdown(
+                        source = content!!,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            horizontal = MemoSpacing.lg,
+                            vertical = MemoSpacing.md,
+                        ),
+                    )
                 }
             }
         }

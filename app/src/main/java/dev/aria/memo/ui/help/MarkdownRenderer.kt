@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -222,6 +223,9 @@ internal fun splitTableRow(line: String): List<String> {
 /**
  * Render a parsed set of blocks as stacked composables. Each block handles its
  * own vertical spacing — callers provide the wrapping column.
+ *
+ * Use [LazyRenderMarkdown] for long documents (the user guide is ~20 KB; on
+ * low-end devices a single Column composes every block on the first frame).
  */
 @Composable
 fun RenderMarkdown(source: String, modifier: Modifier = Modifier) {
@@ -233,6 +237,34 @@ fun RenderMarkdown(source: String, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         blocks.forEach { block -> RenderBlock(block) }
+    }
+}
+
+/**
+ * Lazy variant of [RenderMarkdown] for long documents — only blocks within
+ * (or about to enter) the viewport pay the recomposition cost. Fixes #176
+ * (Bug-2 Medium): the help guide's ~20 KB markdown was rendering all blocks
+ * on the first frame, blocking ~300 ms on slow devices.
+ */
+@Composable
+fun LazyRenderMarkdown(
+    source: String,
+    modifier: Modifier = Modifier,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues =
+        androidx.compose.foundation.layout.PaddingValues(0.dp),
+) {
+    val blocks = androidx.compose.runtime.remember(source) { parseBlocks(source) }
+    androidx.compose.foundation.lazy.LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = contentPadding,
+    ) {
+        items(
+            count = blocks.size,
+            key = { idx -> "${idx}-${blocks[idx].hashCode()}" },
+        ) { idx ->
+            RenderBlock(blocks[idx])
+        }
     }
 }
 
