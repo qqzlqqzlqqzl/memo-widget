@@ -116,16 +116,14 @@ fun SettingsScreen(
     var showOAuthDialog by remember { mutableStateOf(false) }
     var pendingClientId by remember { mutableStateOf("") }
     var clientIdDraft by remember { mutableStateOf("") }
-    androidx.compose.runtime.DisposableEffect(patVisible, aiKeyVisible) {
+    // Sec-1 M2 fix (#99): SettingsScreen 全局 FLAG_SECURE — PAT/apiKey 即使不
+    // toggle 明文,设置页本身就含 redacted 但能反推的输入提示 + repo 名 + provider
+    // URL 等敏感配置。截图/任务卡片不应保留这些。整页 always-on 取代之前
+    // toggle-based 局部覆盖,简化 + 防漏。
+    androidx.compose.runtime.DisposableEffect(Unit) {
         val activity = ctx as? android.app.Activity
         val window = activity?.window
-        // Treat the AI api key with the same screen-capture discipline as the
-        // GitHub PAT — either plaintext secret toggling on should turn FLAG_SECURE on.
-        if (patVisible || aiKeyVisible) {
-            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-        } else {
-            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-        }
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
     }
 
