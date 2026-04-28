@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -47,50 +48,64 @@ class CalendarViewModel(
     // is anchored on "today" (not on _selected), so switching selection no
     // longer triggers an O(events × span) re-expansion — only an O(events)
     // filter over the already-materialised occurrence list.
-    private data class Expanded(
+    private data class EventBlock(
         val occurrences: List<EventOccurrence>,
-        val markers: Set<LocalDate>,
+        val eventMarkers: Set<LocalDate>,
     )
 
-    private val expanded = combine(allEvents, allNotes) { events, notes ->
+    /**
+     * Expand event occurrences only when [allEvents] emits. Fixes #130
+     * (Perf-1 H5): the previous combine(allEvents, allNotes) re-expanded
+     * every RRULE on every note write — at a few dozen recurring events
+     * across a 13-month window each note save was running thousands of
+     * occurrence calculations even though the events hadn't changed.
+     */
+    private val eventBlock: kotlinx.coroutines.flow.Flow<EventBlock> = allEvents.map { events ->
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now()
-        val windowStartMs = today.minusDays(HISTORY_BUFFER_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
-        val windowEndMs = today.plusDays(FUTURE_HORIZON_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
-        val occurrences = events.flatMap { EventExpander.expand(it, windowStartMs, windowEndMs, zone) }
-
-        val markers = HashSet<LocalDate>()
+        val windowStartMs = today.minusDays(HISTORY_BUFFER_DAYS)
+            .atStartOfDay(zone).toInstant().toEpochMilli()
+        val windowEndMs = today.plusDays(FUTURE_HORIZON_DAYS)
+            .atStartOfDay(zone).toInstant().toEpochMilli()
+        val occurrences = events.flatMap {
+            EventExpander.expand(it, windowStartMs, windowEndMs, zone)
+        }
+        val eventMarkers = HashSet<LocalDate>()
         for (occ in occurrences) {
             var d = java.time.Instant.ofEpochMilli(occ.startEpochMs).atZone(zone).toLocalDate()
             val endDate = java.time.Instant.ofEpochMilli(occ.endEpochMs).atZone(zone).toLocalDate()
             while (!d.isAfter(endDate)) {
-                markers.add(d)
+                eventMarkers.add(d)
                 d = d.plusDays(1)
             }
         }
-        for (n in notes) markers.add(n.date)
-
-        Expanded(occurrences = occurrences, markers = markers)
+        EventBlock(occurrences = occurrences, eventMarkers = eventMarkers)
     }.flowOn(Dispatchers.Default)
 
-    // Fixes #7 (markers on Default) + P4 (RRULE expansion).
-    val state: StateFlow<CalendarUiState> = combine(expanded, allNotes, _selected) { ex, notes, sel ->
-        val zone = ZoneId.systemDefault()
-        val dayStart = sel.atStartOfDay(zone).toInstant().toEpochMilli()
-        val dayEnd = sel.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val dayEvents = ex.occurrences
-            .filter { it.startEpochMs < dayEnd && it.endEpochMs >= dayStart }
-            .sortedBy { it.startEpochMs }
-        val dayMemos = notes.firstOrNull { it.date == sel }?.let {
-            MemoRepository.parseEntries(it.content, it.date)
-        } ?: emptyList()
+    /** Note-only marker set — recomputed only when [allNotes] emits. */
+    private val noteMarkers: kotlinx.coroutines.flow.Flow<Set<LocalDate>> = allNotes
+        .map { notes -> notes.mapTo(HashSet()) { it.date } }
+        .flowOn(Dispatchers.Default)
 
-        CalendarUiState(
-            selected = sel,
-            daySummary = DaySummary(events = dayEvents, memos = dayMemos),
-            markedDates = ex.markers,
-        )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, CalendarUiState())
+    // Fixes #7 (markers on Default) + P4 (RRULE expansion) + #130 split.
+    val state: StateFlow<CalendarUiState> =
+        combine(eventBlock, noteMarkers, allNotes, _selected) { eb, nMarkers, notes, sel ->
+            val zone = ZoneId.systemDefault()
+            val dayStart = sel.atStartOfDay(zone).toInstant().toEpochMilli()
+            val dayEnd = sel.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            val dayEvents = eb.occurrences
+                .filter { it.startEpochMs < dayEnd && it.endEpochMs >= dayStart }
+                .sortedBy { it.startEpochMs }
+            val dayMemos = notes.firstOrNull { it.date == sel }?.let {
+                MemoRepository.parseEntries(it.content, it.date)
+            } ?: emptyList()
+
+            CalendarUiState(
+                selected = sel,
+                daySummary = DaySummary(events = dayEvents, memos = dayMemos),
+                markedDates = eb.eventMarkers + nMarkers,
+            )
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, CalendarUiState())
 
     fun selectDate(date: LocalDate) { _selected.value = date }
 
