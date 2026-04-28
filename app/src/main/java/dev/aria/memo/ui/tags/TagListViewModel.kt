@@ -25,13 +25,25 @@ class TagListViewModel(
     private val repository: MemoRepository,
 ) : ViewModel() {
 
+    /**
+     * Per-VM tag-extraction cache. Held on the VM so its lifetime tracks
+     * the screen — when the user backs out and re-enters, we pay the
+     * regex cost again, but for the steady-state case (every note save
+     * fires a Room emit), unchanged bodies are O(1) hits.
+     *
+     * Fixes #124 (Perf-1 H2): re-running TAG_REGEX over every body on
+     * every save was the bulk of the CPU work behind a hand-feel "lag"
+     * after typing.
+     */
+    private val tagCache = TagIndexer.Cache()
+
     // Bug-1 H11 fix (#115): combine day-files + single-notes,让 TagIndexer 同时
     // 扫两套数据源,#tag 在 single-note 里也能被发现。
     val state: StateFlow<TagListUiState> = combine(
         repository.observeNotes(),
         ServiceLocator.singleNoteRepo.observeAll(),
     ) { files, singleNotes ->
-        TagListUiState(root = TagIndexer.indexAll(files, singleNotes))
+        TagListUiState(root = TagIndexer.index(files, singleNotes, tagCache))
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, TagListUiState())

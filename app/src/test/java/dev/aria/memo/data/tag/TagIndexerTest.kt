@@ -111,4 +111,53 @@ class TagIndexerTest {
             findChild(root, "fakeTag"),
         )
     }
+
+    @Test
+    fun `cache returns the same tree shape for repeated unchanged input`() {
+        // Issue #124: tag indexing must be idempotent under the cache —
+        // two consecutive index() calls with identical inputs must
+        // produce identical trees, otherwise stale cached matches would
+        // leak as duplicates.
+        val cache = TagIndexer.Cache()
+        val files = listOf(
+            note(LocalDate.of(2026, 4, 21), "morning #work/meeting"),
+            note(LocalDate.of(2026, 4, 22), "evening #personal #work"),
+        )
+        val first = TagIndexer.index(files, emptyList(), cache)
+        val second = TagIndexer.index(files, emptyList(), cache)
+        // Same set of root children, same names.
+        assertEquals(
+            first.children.map { it.name }.sorted(),
+            second.children.map { it.name }.sorted(),
+        )
+        // No duplicate entries — the cache must not double-count matches.
+        val workNode1 = findChild(first, "work")
+        val workNode2 = findChild(second, "work")
+        assertEquals(workNode1!!.entries.size, workNode2!!.entries.size)
+        assertTrue(workNode1.entries.size > 0)
+    }
+
+    @Test
+    fun `cache evicts deleted paths so removed files do not linger`() {
+        // Issue #124: when a file vanishes from the input, the cache slot
+        // for it must be cleared too — otherwise the next emission's
+        // tree would still carry its tags.
+        val cache = TagIndexer.Cache()
+        val firstSet = listOf(
+            note(LocalDate.of(2026, 4, 21), "before #legacy"),
+            note(LocalDate.of(2026, 4, 22), "stays #pinned"),
+        )
+        val before = TagIndexer.index(firstSet, emptyList(), cache)
+        assertNotNull(findChild(before, "legacy"))
+        assertNotNull(findChild(before, "pinned"))
+
+        // Drop the first file; only #pinned should survive.
+        val secondSet = listOf(firstSet[1])
+        val after = TagIndexer.index(secondSet, emptyList(), cache)
+        assertNull(
+            "deleted file's tag must not survive in the next tree",
+            findChild(after, "legacy"),
+        )
+        assertNotNull(findChild(after, "pinned"))
+    }
 }
