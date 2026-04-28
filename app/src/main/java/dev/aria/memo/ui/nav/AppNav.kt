@@ -17,7 +17,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -27,8 +30,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.ui.SettingsScreen
 import dev.aria.memo.ui.SettingsViewModel
+import dev.aria.memo.ui.onboarding.OnboardingDialog
+import kotlinx.coroutines.launch
 import dev.aria.memo.ui.ai.AiChatScreen
 import dev.aria.memo.ui.ai.AiChatViewModel
 import dev.aria.memo.ui.calendar.CalendarScreen
@@ -51,6 +57,15 @@ fun AppNav(onOpenEditor: () -> Unit) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+
+    // Fixes #144: first-launch onboarding overlay. We read the flag from
+    // the OnboardingStore on first composition; the dialog stays mounted
+    // until the user either dismisses or finishes the flow, both of
+    // which call markCompleted() and flip this to true.
+    val onboardingStore = remember { ServiceLocator.onboarding }
+    val onboardingCompleted by onboardingStore.completed
+        .collectAsStateWithLifecycle(initialValue = true)
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
         bottomBar = {
@@ -173,5 +188,25 @@ fun AppNav(onOpenEditor: () -> Unit) {
                     )
                 }
         }
+    }
+
+    // Fixes #144: render the dialog last so it sits over the navigation
+    // shell. The store's flow seeds with `true` (initialValue) so the
+    // dialog only appears for users we *know* haven't completed yet —
+    // never as a flicker on every launch.
+    if (!onboardingCompleted) {
+        OnboardingDialog(
+            onGoToSettings = {
+                coroutineScope.launch { onboardingStore.markCompleted() }
+                nav.navigate(Tab.Settings.route) {
+                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            },
+            onSkip = {
+                coroutineScope.launch { onboardingStore.markCompleted() }
+            },
+        )
     }
 }

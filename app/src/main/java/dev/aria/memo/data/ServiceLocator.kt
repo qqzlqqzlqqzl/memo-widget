@@ -34,6 +34,7 @@ object ServiceLocator {
     @Volatile private var _aiSettings: AiSettingsStore? = null
     @Volatile private var _aiClient: AiClient? = null
     @Volatile private var _connectivity: ConnectivityObserver? = null
+    @Volatile private var _onboarding: OnboardingStore? = null
 
     /**
      * P8：暴露应用级 Context 给数据层 hook（特别是 [dev.aria.memo.data.widget.WidgetRefresher]）。
@@ -91,6 +92,7 @@ object ServiceLocator {
         _aiSettings = aiSettings
         _aiClient = aiClient
         _connectivity = ConnectivityObserver.fromContext(appContext)
+        _onboarding = OnboardingStore(appContext)
     }
 
     // --------------------------------------------------------------------------------
@@ -120,6 +122,8 @@ object ServiceLocator {
     val ai: AiClient get() = requireNotNull(_aiClient) { "ServiceLocator.init() not called" }
     val connectivity: ConnectivityObserver
         get() = requireNotNull(_connectivity) { "ServiceLocator.init() not called" }
+    val onboarding: OnboardingStore
+        get() = requireNotNull(_onboarding) { "ServiceLocator.init() not called" }
 
     // --------------------------------------------------------------------------------
     // Legacy method-style API. Kept so in-flight calls don't break; marked
