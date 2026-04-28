@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ replacement for android:allowBackup="false". Disables
+  both cloud-to-device backup and device-to-device transfer because
+  the app stores its source of truth on GitHub already; restoring an
+  encrypted PAT to a different device would either fail (Keystore is
+  not transferable) or silently use a stale token.
+
+  Fixes the [DataExtractionRules] lint warning in AndroidManifest.xml.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>
