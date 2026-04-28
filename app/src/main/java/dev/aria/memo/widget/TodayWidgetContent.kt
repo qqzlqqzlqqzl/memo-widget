@@ -182,12 +182,14 @@ private fun TodayList(events: List<EventEntity>, memos: List<MemoEntry>) {
     ) {
         items(
             items = rows,
+            // Fixes #319: 64-bit FNV-1a hashing over a stable per-row
+            // key. Eliminates the 32-bit hashCode collision risk that
+            // could make Glance recycle one row's view for another's
+            // data (visible as flicker on the today widget).
             itemId = { row ->
                 when (row) {
-                    is TodayRow.EventRow -> row.event.uid.hashCode().toLong()
-                    // Fixes #3: same-minute memos need distinct ids — mix body hash.
-                    is TodayRow.MemoRow -> row.memo.time.toSecondOfDay().toLong() * 31L +
-                        row.memo.body.hashCode().toLong()
+                    is TodayRow.EventRow -> stableItemId('e', row.event.uid)
+                    is TodayRow.MemoRow -> stableItemId('m', "${row.memo.time}|${row.memo.body}")
                 }
             },
         ) { row ->

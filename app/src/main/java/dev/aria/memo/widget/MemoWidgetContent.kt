@@ -234,14 +234,15 @@ private fun EntriesBody(rows: List<MemoWidgetRow>) {
     ) {
         items(
             items = rows,
-            // Mix uid (when present) or a synthetic date+time+hash id so rows
-            // from different sources never collide.
+            // Fixes #319: FNV-1a 64-bit over a stable per-row key. The
+            // 'u' / 'l' tag prevents single-note ids from colliding with
+            // legacy day-file rows that happen to hash to the same value.
             itemId = { row ->
-                val uidHash = (row.noteUid?.hashCode() ?: 0).toLong()
-                row.date.toEpochDay() * 1_000_000L +
-                    row.time.toSecondOfDay().toLong() * 31L +
-                    row.label.hashCode().toLong() +
-                    uidHash
+                if (row.noteUid != null) {
+                    stableItemId('u', row.noteUid)
+                } else {
+                    stableItemId('l', "${row.date}|${row.time}|${row.label}")
+                }
             },
         ) { row ->
             EntryRow(row)
