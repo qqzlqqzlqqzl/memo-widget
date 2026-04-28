@@ -14,8 +14,8 @@ android {
         applicationId = "dev.aria.memo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 29
-        versionName = "0.12.16-p8"
+        versionCode = 30
+        versionName = "0.12.17-p8"
 
         // Fix-W3 / Fix-WidgetBdd: required for instrumented test discovery on
         // emulator (CI android-instrumented job) — without this the runner
@@ -45,6 +45,15 @@ android {
         debug {
             isMinifyEnabled = false
         }
+    }
+
+    lint {
+        // ObsoleteSdkInt: lint says mipmap-anydpi-v26 is redundant because
+        // minSdk is already 26, but adaptive-icon XML *is* a v26-only
+        // resource format and AAPT errors when the qualifier is dropped
+        // (it falls back to expecting density-specific PNGs we don't
+        // ship). The qualifier is necessary, not obsolete.
+        disable += "ObsoleteSdkInt"
     }
 
     compileOptions {
