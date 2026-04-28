@@ -7,15 +7,15 @@
 > - 📜 **P0 历史设计** → [AGENT_SPEC.md](AGENT_SPEC.md)（已过期，仅存档用途）
 > - 📄 **本文**（README.md） → 技术总览，继续往下读
 
-一个后端是 **GitHub** 的 Android 笔记 + 日程 app。写的每一条笔记、每一个日程都会自动 commit 到你自己的 GitHub 仓库，多设备之间自动同步，离线也能用。**v0.11.0-p7 起**接入 AI 问答（任何 OpenAI-compatible endpoint：OpenAI / DeepSeek / ollama 等）；**v0.12.1-p8 起** Memo 小组件重做为"最近 20 条可滚动列表 + 自动刷新 + 手动刷新按钮"，笔记任何增删改都会立即反映到桌面。
+一个后端是 **GitHub** 的 Android 笔记 + 日程 app。写的每一条笔记、每一个日程都会自动 commit 到你自己的 GitHub 仓库，多设备之间自动同步，离线也能用。**v0.11.0-p7 起**接入 AI 问答（任何 OpenAI-compatible endpoint：OpenAI / DeepSeek / ollama 等）；**v0.12.1-p8 起** Memo 小组件重做为"最近 20 条可滚动列表 + 自动刷新 + 手动刷新按钮"，笔记任何增删改都会立即反映到桌面；**v0.12.2-p8 → v0.12.17-p8 P8.1 closeout + P9-revisit 浪潮**收掉了原 punch list 10 条 + 已弃 P9 的约 50 条真实 fix（详见 CHANGELOG 单条 entry）。
 
-[![release](https://img.shields.io/badge/release-v0.12.1--p8-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.12.1-p8)
+[![release](https://img.shields.io/badge/release-v0.12.17--p8-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.12.17-p8)
 [![build](https://img.shields.io/badge/build-passing-brightgreen)]()
 [![tests](https://img.shields.io/badge/tests-~240%20passed-brightgreen)]()
 [![kotlin](https://img.shields.io/badge/kotlin-2.0.10-blue)]()
 [![compose](https://img.shields.io/badge/compose-material3-blue)]()
 [![glance](https://img.shields.io/badge/glance-1.1.0-blue)]()
-[![room](https://img.shields.io/badge/room-schema%20v8-blue)]()
+[![room](https://img.shields.io/badge/room-schema%20v9-blue)]()
 
 ---
 
