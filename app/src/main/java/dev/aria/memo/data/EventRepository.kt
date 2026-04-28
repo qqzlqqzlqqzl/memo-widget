@@ -104,10 +104,14 @@ class EventRepository(
     }
 
     suspend fun delete(uid: String): MemoResult<Unit> {
+        // Bug-1 H5 fix (#102): 不存在 uid 返回 NOT_FOUND 让 caller 知道,
+        // 不再静默 Ok。Caller (UI) 可以 dispatch snackbar / refresh stale state。
+        if (dao.get(uid) == null) {
+            return MemoResult.Err(ErrorCode.NOT_FOUND, "事件不存在: $uid")
+        }
         dao.tombstone(uid, System.currentTimeMillis())
         SyncScheduler.enqueuePush(appContext)
         runCatching { AlarmScheduler.cancelForUid(appContext, uid) }
-        // P8 widget 自推：event 删除后 TodayWidget 也要刷新。
         WidgetRefresher.refreshAll(appContext)
         return MemoResult.Ok(Unit)
     }

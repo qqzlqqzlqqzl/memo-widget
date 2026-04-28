@@ -236,7 +236,8 @@ open class MemoRepository(
      * markdown front matter so it round-trips through GitHub, marks the row
      * dirty, and enqueues a push. No-op if the file isn't in Room yet.
      */
-    suspend fun togglePin(path: String, pinned: Boolean) {
+    suspend fun togglePin(path: String, pinned: Boolean): MemoResult<Unit> {
+        var found = false
         PathLocker.withLock(path) {
             // Data-1 R12 fix: the read-modify-write of the pin flag and the
             // content column must be atomic. Without `withTransaction`, a
@@ -246,6 +247,7 @@ open class MemoRepository(
             // on next sync.
             runInTx {
                 val existing = dao.get(path) ?: return@runInTx
+                found = true
                 val newContent = applyPinFrontMatter(existing.content, pinned)
                 dao.togglePin(
                     path = path,
@@ -254,11 +256,13 @@ open class MemoRepository(
                     updatedAt = System.currentTimeMillis(),
                 )
             }
-            SyncScheduler.enqueuePush(appContext)
+            if (found) SyncScheduler.enqueuePush(appContext)
         }
-        // P8 widget 自推：pin 变化会影响 widget 列表顺序（置顶条目上浮）。
-        // 放 withLock 外 —— refresh 不需要锁；放里面反而多占锁时间。
         WidgetRefresher.refreshAll(appContext)
+        // Bug-1 M10 fix (#131): 不存在路径返 NOT_FOUND 不再静默 Ok,
+        // caller 可以 dispatch UX 反馈。
+        return if (found) MemoResult.Ok(Unit)
+        else MemoResult.Err(ErrorCode.NOT_FOUND, "笔记不存在: $path")
     }
 
     companion object {

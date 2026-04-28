@@ -272,8 +272,12 @@ class NoteListViewModel(
         internal fun buildPreview(body: String): String {
             val stripped = stripLeadingYaml(body)
             val collapsed = stripped.trim()
-            return if (collapsed.length <= PREVIEW_MAX_CHARS) collapsed
-            else collapsed.substring(0, PREVIEW_MAX_CHARS)
+            if (collapsed.length <= PREVIEW_MAX_CHARS) return collapsed
+            // Bug-1 M7 fix (#125): substring 用 char index,落在 surrogate pair
+            // 中间产生 invalid UTF-16 (lone high surrogate)。回退 1 char 保 pair。
+            val cut = if (collapsed[PREVIEW_MAX_CHARS - 1].isHighSurrogate())
+                PREVIEW_MAX_CHARS - 1 else PREVIEW_MAX_CHARS
+            return collapsed.substring(0, cut)
         }
 
         /**
