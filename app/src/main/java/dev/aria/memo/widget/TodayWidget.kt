@@ -58,17 +58,38 @@ class TodayWidget(private val clock: Clock = Clock.systemDefaultZone()) : Glance
         // settings.current()（虽然 C1 之后已 flowOn IO）+ 查 Room + parseEntries。
         // 冷路径叠加给 widget ANR 留的余量非常薄，这里也套一层 3s 保护；timeout
         // 发生时降级为"已配置 + 空列表"，下一轮 widget tick 再试。
+        //
+        // Fixes #331 (Agent 6 W-4): the previous query only read today's
+        // legacy day-file (`config.filePathFor(today)`) and ignored
+        // single-note rows that fall on today's date entirely. A user
+        // who only writes single-notes saw an empty TodayWidget even
+        // when they'd just saved a note. Merge both sources, filtered to
+        // today's date, and sort newest-first.
         val memoResult = withTimeoutOrNull(3_000) { repo.recentEntries(limit = 20) }
         val isConfigured: Boolean
-        val memos: List<MemoEntry>
+        val legacyMemos: List<MemoEntry>
         when (memoResult) {
-            is MemoResult.Ok -> { isConfigured = true; memos = memoResult.value }
+            is MemoResult.Ok -> { isConfigured = true; legacyMemos = memoResult.value }
             is MemoResult.Err -> {
                 isConfigured = memoResult.code != ErrorCode.NOT_CONFIGURED
-                memos = emptyList()
+                legacyMemos = emptyList()
             }
-            null -> { isConfigured = true; memos = emptyList() }
+            null -> { isConfigured = true; legacyMemos = emptyList() }
         }
+        val singleNoteMemos: List<MemoEntry> = if (isConfigured) {
+            withTimeoutOrNull(2_000) {
+                ServiceLocator.singleNoteRepo.observeAll().first()
+                    .asSequence()
+                    .filter { it.date == today }
+                    .map { MemoEntry(date = it.date, time = it.time, body = it.body) }
+                    .toList()
+            } ?: emptyList()
+        } else {
+            emptyList()
+        }
+        val memos: List<MemoEntry> = (legacyMemos + singleNoteMemos)
+            .sortedByDescending { it.time }
+            .take(20)
 
         val events: List<EventEntity> = if (isConfigured) {
             withTimeoutOrNull(2_000) {
