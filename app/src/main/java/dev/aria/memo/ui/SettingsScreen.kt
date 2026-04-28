@@ -463,6 +463,7 @@ private fun SettingsContent(
             singleLine = true,
             visualTransformation = if (patVisible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            isError = state.patError != null,
             trailingIcon = {
                 IconButton(onClick = onTogglePatVisibility) {
                     Icon(
@@ -471,7 +472,9 @@ private fun SettingsContent(
                     )
                 }
             },
-            supportingText = { Text("仅本机存储，不会上传到任何其它地方") },
+            supportingText = {
+                Text(state.patError ?: "仅本机存储，不会上传到任何其它地方")
+            },
             modifier = patFieldModifier,
         )
 
@@ -609,6 +612,8 @@ private fun AiConfigSection(
                 placeholder = { Text("https://api.openai.com/v1/chat/completions") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                isError = state.aiProviderUrlError != null,
+                supportingText = state.aiProviderUrlError?.let { msg -> { Text(msg) } },
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -618,6 +623,8 @@ private fun AiConfigSection(
                 label = { Text("Model") },
                 placeholder = { Text("gpt-4o-mini / deepseek-chat / llama3") },
                 singleLine = true,
+                isError = state.aiModelError != null,
+                supportingText = state.aiModelError?.let { msg -> { Text(msg) } },
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -629,6 +636,7 @@ private fun AiConfigSection(
                 singleLine = true,
                 visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                isError = state.aiApiKeyError != null,
                 trailingIcon = {
                     IconButton(onClick = onToggleKeyVisibility) {
                         Icon(
@@ -637,6 +645,7 @@ private fun AiConfigSection(
                         )
                     }
                 },
+                supportingText = state.aiApiKeyError?.let { msg -> { Text(msg) } },
                 modifier = Modifier.fillMaxWidth(),
             )
 

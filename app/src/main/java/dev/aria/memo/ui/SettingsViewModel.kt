@@ -1,5 +1,6 @@
 package dev.aria.memo.ui
 
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -76,6 +77,15 @@ data class SettingsUiState(
      */
     val accountSwitchedAt: Long? = null,
     val errorMessage: String? = null,
+    /**
+     * Per-field validation errors surfaced inline under each input
+     * (#140 Bug-1 M16). Cleared whenever the user starts editing the
+     * corresponding field — the next save attempt re-runs validation.
+     */
+    val patError: String? = null,
+    val aiProviderUrlError: String? = null,
+    val aiModelError: String? = null,
+    val aiApiKeyError: String? = null,
     val aiProviderUrl: String = "",
     val aiModel: String = "",
     val aiApiKey: String = "",
@@ -164,18 +174,18 @@ class SettingsViewModel(
         // Fix-X1: user started editing — the previous Valid/Invalid mark
         // applied to the *old* token, so reset back to Unknown (we'll learn
         // about the new value once they hit 保存 and 重新验证).
-        it.copy(pat = v, errorMessage = null, patStatus = PatStatus.Unknown)
+        it.copy(pat = v, errorMessage = null, patStatus = PatStatus.Unknown, patError = null)
     }
     fun onOwnerChange(v: String) = _state.update { it.copy(owner = v, errorMessage = null) }
     fun onRepoChange(v: String) = _state.update { it.copy(repo = v, errorMessage = null) }
     fun onBranchChange(v: String) = _state.update { it.copy(branch = v, errorMessage = null) }
 
     fun onAiProviderUrlChange(v: String) =
-        _state.update { it.copy(aiProviderUrl = v, errorMessage = null) }
+        _state.update { it.copy(aiProviderUrl = v, errorMessage = null, aiProviderUrlError = null) }
     fun onAiModelChange(v: String) =
-        _state.update { it.copy(aiModel = v, errorMessage = null) }
+        _state.update { it.copy(aiModel = v, errorMessage = null, aiModelError = null) }
     fun onAiApiKeyChange(v: String) =
-        _state.update { it.copy(aiApiKey = v, errorMessage = null) }
+        _state.update { it.copy(aiApiKey = v, errorMessage = null, aiApiKeyError = null) }
 
     fun reload() {
         viewModelScope.launch {
@@ -208,12 +218,21 @@ class SettingsViewModel(
     fun save() {
         val snapshot = _state.value
         if (snapshot.isSaving) return
-        _state.value = snapshot.copy(isSaving = true, errorMessage = null)
+        // Fixes #140 (Bug-1 M16): catch obviously bad inputs before the
+        // network call so the user gets an inline hint instead of waiting for
+        // GitHub to reject the request with a generic UNAUTHORIZED.
+        val patTrim = snapshot.pat.trim()
+        val patError = validateGithubPat(patTrim)
+        if (patError != null) {
+            _state.value = snapshot.copy(patError = patError)
+            return
+        }
+        _state.value = snapshot.copy(isSaving = true, errorMessage = null, patError = null)
         viewModelScope.launch {
             try {
                 settings.update { existing: AppConfig ->
                     existing.copy(
-                        pat = snapshot.pat.trim(),
+                        pat = patTrim,
                         owner = snapshot.owner.trim(),
                         repo = snapshot.repo.trim(),
                         branch = snapshot.branch.trim().ifBlank { "main" },
@@ -278,13 +297,37 @@ class SettingsViewModel(
     fun saveAiConfig() {
         val snapshot = _state.value
         if (snapshot.isSavingAi) return
-        _state.value = snapshot.copy(isSavingAi = true, errorMessage = null)
+        // Fixes #140 (Bug-1 M16): inline validation before write. Anything
+        // visibly malformed (no scheme, whitespace in model name, blank key)
+        // produces a per-field hint and skips the actual save so the user
+        // can correct it without a network round-trip.
+        val urlTrim = snapshot.aiProviderUrl.trim()
+        val modelTrim = snapshot.aiModel.trim()
+        val keyTrim = snapshot.aiApiKey.trim()
+        val urlError = validateProviderUrl(urlTrim)
+        val modelError = validateModelName(modelTrim)
+        val keyError = validateApiKey(keyTrim)
+        if (urlError != null || modelError != null || keyError != null) {
+            _state.value = snapshot.copy(
+                aiProviderUrlError = urlError,
+                aiModelError = modelError,
+                aiApiKeyError = keyError,
+            )
+            return
+        }
+        _state.value = snapshot.copy(
+            isSavingAi = true,
+            errorMessage = null,
+            aiProviderUrlError = null,
+            aiModelError = null,
+            aiApiKeyError = null,
+        )
         viewModelScope.launch {
             try {
                 aiSettings.save(
-                    providerUrl = snapshot.aiProviderUrl.trim(),
-                    model = snapshot.aiModel.trim(),
-                    apiKey = snapshot.aiApiKey.trim(),
+                    providerUrl = urlTrim,
+                    model = modelTrim,
+                    apiKey = keyTrim,
                 )
                 _state.value = _state.value.copy(
                     isSavingAi = false,
@@ -401,6 +444,63 @@ class SettingsViewModel(
     }
 
     companion object {
+        /**
+         * GitHub PAT prefix taxonomy:
+         *  - `ghp_` classic personal access token
+         *  - `github_pat_` fine-grained personal access token
+         *  - `gho_` OAuth app access token
+         *  - `ghu_` OAuth user-to-server (what device flow returns)
+         *  - `ghr_` OAuth refresh token
+         *  - `ghs_` server-to-server / app installation token
+         * The body is restricted to GitHub's published charset so a PAT that
+         * was pasted with a stray newline/punctuation is caught here rather
+         * than at the API call.
+         */
+        private val PAT_PREFIX_REGEX =
+            Regex("^(ghp_|github_pat_|gho_|ghu_|ghr_|ghs_|gha_)[A-Za-z0-9_]+$")
+
+        /**
+         * Validate a GitHub PAT shape. Accepts classic (`ghp_…`),
+         * fine-grained (`github_pat_…`), and OAuth user/server tokens.
+         * Returns null when the value passes, or a localized error string
+         * suitable for inline display. Fixes #140 (Bug-1 M16).
+         *
+         * Lives on the companion so tests can hit it without standing up a
+         * full ViewModel + Context graph.
+         */
+        @VisibleForTesting
+        internal fun validateGithubPat(pat: String): String? = when {
+            pat.isBlank() -> "PAT 不能为空"
+            pat.contains(' ') || pat.contains('\t') -> "PAT 不应包含空格"
+            !PAT_PREFIX_REGEX.matches(pat) ->
+                "PAT 应以 ghp_ / github_pat_ / ghu_ 开头"
+            else -> null
+        }
+
+        @VisibleForTesting
+        internal fun validateProviderUrl(url: String): String? = when {
+            url.isBlank() -> "Provider URL 不能为空"
+            url.contains(' ') || url.contains('\t') -> "URL 不应包含空格"
+            !url.startsWith("https://", ignoreCase = true) ->
+                "URL 必须以 https:// 开头"
+            runCatching { java.net.URI(url).host }.getOrNull().isNullOrBlank() ->
+                "URL 看起来不是有效的网址"
+            else -> null
+        }
+
+        @VisibleForTesting
+        internal fun validateModelName(model: String): String? = when {
+            model.isBlank() -> "Model 不能为空"
+            model.contains(' ') || model.contains('\t') -> "Model 名不能含空格"
+            else -> null
+        }
+
+        @VisibleForTesting
+        internal fun validateApiKey(key: String): String? = when {
+            key.isBlank() -> "API Key 不能为空"
+            else -> null
+        }
+
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
