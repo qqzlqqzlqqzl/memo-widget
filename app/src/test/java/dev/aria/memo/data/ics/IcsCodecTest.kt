@@ -123,6 +123,96 @@ END:VCALENDAR
     }
 
     @Test
+    fun `issue 106 — DTSTART with TZID parses without dropping the event`() {
+        val tzid = """
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:tz-evt
+SUMMARY:meeting
+DTSTART;TZID=America/Los_Angeles:20260427T140000
+DTEND;TZID=America/Los_Angeles:20260427T150000
+END:VEVENT
+END:VCALENDAR
+""".trimIndent()
+        val decoded = IcsCodec.decode(tzid, "events/tz.ics", null, 0L)
+        assertNotNull("TZID DTSTART must not silently drop the VEVENT (#106)", decoded)
+        assertEquals("tz-evt", decoded!!.uid)
+        // 14:00 PT on 2026-04-27 = 21:00 UTC same day = epoch ms
+        val expected = java.time.ZonedDateTime
+            .of(2026, 4, 27, 14, 0, 0, 0, java.time.ZoneId.of("America/Los_Angeles"))
+            .toInstant()
+            .toEpochMilli()
+        assertEquals(expected, decoded.startEpochMs)
+        assertTrue("timed event with HHMMSS must not be marked all-day", !decoded.allDay)
+    }
+
+    @Test
+    fun `issue 106 — floating DTSTART without Z parses in system default zone`() {
+        val floating = """
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:floating-evt
+SUMMARY:no-tz timed
+DTSTART:20260427T140000
+DTEND:20260427T150000
+END:VEVENT
+END:VCALENDAR
+""".trimIndent()
+        val decoded = IcsCodec.decode(floating, "events/floating.ics", null, 0L)
+        assertNotNull("floating DTSTART must not return null (#106)", decoded)
+        // Equivalent computation in the same default zone — start should match.
+        val expected = java.time.LocalDateTime
+            .of(2026, 4, 27, 14, 0, 0)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        assertEquals(expected, decoded!!.startEpochMs)
+    }
+
+    @Test
+    fun `issue 106 — VALUE=DATE explicitly marks all-day even with date value`() {
+        val allDay = """
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:allday-evt
+SUMMARY:holiday
+DTSTART;VALUE=DATE:20260427
+DTEND;VALUE=DATE:20260428
+END:VEVENT
+END:VCALENDAR
+""".trimIndent()
+        val decoded = IcsCodec.decode(allDay, "events/allday.ics", null, 0L)
+        assertNotNull(decoded)
+        assertTrue("VALUE=DATE must mark allDay=true", decoded!!.allDay)
+    }
+
+    @Test
+    fun `issue 106 — unknown TZID falls back to UTC for date-only or system zone for timed`() {
+        val unknown = """
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:bad-tz
+SUMMARY:typo zone
+DTSTART;TZID=Mars/Olympus:20260427T140000
+END:VEVENT
+END:VCALENDAR
+""".trimIndent()
+        val decoded = IcsCodec.decode(unknown, "events/bad.ics", null, 0L)
+        // Should not crash; should still decode by falling back, not return null.
+        assertNotNull("unparseable TZID must fall back, not drop the VEVENT", decoded)
+        val expected = java.time.LocalDateTime
+            .of(2026, 4, 27, 14, 0, 0)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        assertEquals(expected, decoded!!.startEpochMs)
+    }
+
+    @Test
     fun `issue 28 — rrule round trips even when value has separator characters`() {
         // Currently produced RRULEs are simple, but the encoder must not corrupt
         // arbitrary RRULE grammar (FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=10).

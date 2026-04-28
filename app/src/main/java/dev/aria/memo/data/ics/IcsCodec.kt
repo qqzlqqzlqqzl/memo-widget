@@ -2,6 +2,9 @@ package dev.aria.memo.data.ics
 
 import dev.aria.memo.data.local.EventEntity
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -20,6 +23,23 @@ object IcsCodec {
     private val UTC_FMT: DateTimeFormatter = DateTimeFormatter
         .ofPattern("yyyyMMdd'T'HHmmss'Z'")
         .withZone(ZoneOffset.UTC)
+    private val LOCAL_FMT: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
+
+    /**
+     * Parsed content line: the value after `:` plus any `;param=value` pairs
+     * from the property name (RFC 5545 §3.2). Captured separately so we can
+     * read TZID / VALUE without losing them to the colon split.
+     *
+     * Fixes #106 (Bug-1 H7): the old decode dropped the part of the property
+     * name after `;`, so `DTSTART;TZID=America/Los_Angeles:20260427T140000`
+     * lost the TZID, fed `20260427T140000` to a UTC-only parser, returned
+     * null, and silently dropped the entire VEVENT.
+     */
+    private data class FieldEntry(
+        val value: String,
+        val params: Map<String, String> = emptyMap(),
+    )
 
     fun encode(event: EventEntity): String {
         val sb = StringBuilder()
@@ -53,7 +73,7 @@ object IcsCodec {
     /** Parse one VEVENT block. Returns null if mandatory fields are missing. */
     fun decode(text: String, filePath: String, githubSha: String?, nowMs: Long): EventEntity? {
         val unfolded = unfoldLines(text)
-        val fields = HashMap<String, String>()
+        val fields = HashMap<String, FieldEntry>()
         var inEvent = false
         for (line in unfolded.lineSequence()) {
             val trimmed = line.trim()
@@ -63,32 +83,59 @@ object IcsCodec {
                 inEvent -> {
                     val idx = trimmed.indexOf(':')
                     if (idx <= 0) continue
-                    // Strip any params after ; (e.g. "DTSTART;TZID=...")
                     val keyRaw = trimmed.substring(0, idx)
                     val key = keyRaw.substringBefore(';').uppercase()
+                    val params = parseParams(keyRaw)
                     val value = trimmed.substring(idx + 1)
-                    fields[key] = value
+                    fields[key] = FieldEntry(value, params)
                 }
             }
         }
         // Fixes #1: UIDs written by us are escaped on encode, so reverse that here.
-        val uid = fields["UID"]?.let(::unescapeText) ?: return null
-        val summary = unescapeText(fields["SUMMARY"].orEmpty())
-        val start = parseIcsInstant(fields["DTSTART"]) ?: return null
-        val end = parseIcsInstant(fields["DTEND"]) ?: start
+        val uid = fields["UID"]?.value?.let(::unescapeText) ?: return null
+        val summary = unescapeText(fields["SUMMARY"]?.value.orEmpty())
+        val dtstart = fields["DTSTART"] ?: return null
+        val start = parseIcsInstant(dtstart.value, dtstart.params["TZID"]) ?: return null
+        val dtend = fields["DTEND"]
+        val end = dtend?.let { parseIcsInstant(it.value, it.params["TZID"]) } ?: start
+        // VALUE=DATE marks an all-day event explicitly; otherwise infer from the
+        // basic-format length (`YYYYMMDD` has no `T`).
+        val allDay = dtstart.params["VALUE"]?.equals("DATE", ignoreCase = true) == true ||
+            !dtstart.value.contains('T')
         return EventEntity(
             uid = uid,
             summary = summary,
             startEpochMs = start,
             endEpochMs = end,
-            allDay = fields["DTSTART"]?.let { !it.contains('T') } ?: false,
+            allDay = allDay,
             filePath = filePath,
             githubSha = githubSha,
-            localUpdatedAt = parseIcsInstant(fields["DTSTAMP"]) ?: nowMs,
+            localUpdatedAt = fields["DTSTAMP"]?.let { parseIcsInstant(it.value, it.params["TZID"]) } ?: nowMs,
             remoteUpdatedAt = nowMs,
             dirty = false,
-            rrule = fields["RRULE"]?.takeIf { it.isNotBlank() },
+            rrule = fields["RRULE"]?.value?.takeIf { it.isNotBlank() },
         )
+    }
+
+    /**
+     * Pull the `;PARAM=value` pairs off a property name like
+     * `DTSTART;TZID=America/Los_Angeles;VALUE=DATE-TIME`. Param names are
+     * upper-cased so callers can lookup case-insensitively. Quoted values
+     * (RFC 5545 §3.2: `DQUOTE`-wrapped) have their wrapping quotes stripped.
+     */
+    private fun parseParams(keyRaw: String): Map<String, String> {
+        if (!keyRaw.contains(';')) return emptyMap()
+        val parts = keyRaw.split(';')
+        if (parts.size <= 1) return emptyMap()
+        val out = HashMap<String, String>(parts.size - 1)
+        for (i in 1 until parts.size) {
+            val eq = parts[i].indexOf('=')
+            if (eq <= 0) continue
+            val k = parts[i].substring(0, eq).uppercase()
+            val v = parts[i].substring(eq + 1).removeSurrounding("\"")
+            out[k] = v
+        }
+        return out
     }
 
     // --- helpers -----------------------------------------------------------
@@ -114,23 +161,46 @@ object IcsCodec {
         return out.toString()
     }
 
-    private fun parseIcsInstant(raw: String?): Long? {
+    /**
+     * Parse a DTSTART/DTEND/DTSTAMP value. Three RFC 5545 forms are accepted:
+     *  - UTC basic: `YYYYMMDDTHHMMSSZ` — interpreted as UTC regardless of [tzid].
+     *  - Floating local / TZID-anchored: `YYYYMMDDTHHMMSS` — interpreted in
+     *    [tzid] when present, otherwise [ZoneId.systemDefault] (RFC 5545 §3.3.5
+     *    "form #1: floating" → recipient's local zone).
+     *  - Date-only: `YYYYMMDD` — midnight in [tzid] when present, otherwise UTC.
+     *
+     * Fixes #106 (Bug-1 H7): previously a TZID DTSTART or floating DTSTART hit
+     * the `else` branch and made the whole VEVENT decode return null.
+     */
+    private fun parseIcsInstant(raw: String?, tzid: String? = null): Long? {
         if (raw.isNullOrBlank()) return null
         val cleaned = raw.trim()
         return try {
             when {
                 cleaned.endsWith("Z") -> Instant.from(UTC_FMT.parse(cleaned)).toEpochMilli()
-                cleaned.length == 8 -> { // date-only YYYYMMDD → midnight UTC
+                cleaned.length == 8 -> {
                     val y = cleaned.substring(0, 4).toInt()
                     val m = cleaned.substring(4, 6).toInt()
                     val d = cleaned.substring(6, 8).toInt()
-                    java.time.LocalDate.of(y, m, d).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+                    val zone = resolveZone(tzid) ?: ZoneOffset.UTC
+                    LocalDate.of(y, m, d).atStartOfDay(zone).toInstant().toEpochMilli()
+                }
+                cleaned.length == 15 && cleaned[8] == 'T' -> {
+                    val ldt = LocalDateTime.parse(cleaned, LOCAL_FMT)
+                    val zone = resolveZone(tzid) ?: ZoneId.systemDefault()
+                    ldt.atZone(zone).toInstant().toEpochMilli()
                 }
                 else -> null
             }
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /** Resolve a TZID parameter to a ZoneId; null when absent or unparseable. */
+    private fun resolveZone(tzid: String?): ZoneId? {
+        if (tzid.isNullOrBlank()) return null
+        return runCatching { ZoneId.of(tzid) }.getOrNull()
     }
 
     private fun escapeText(s: String): String = s
