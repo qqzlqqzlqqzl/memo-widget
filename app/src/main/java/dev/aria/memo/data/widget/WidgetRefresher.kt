@@ -13,6 +13,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 数据写路径 → widget UI 的"自推刷新"通道（P8，Fix-1 加固版）。
@@ -75,6 +76,37 @@ object WidgetRefresher {
         extraBufferCapacity = 16,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
+
+    /**
+     * Which widgets need to be refreshed when the next debounce window
+     * fires. AtomicReference so the per-target accumulation across
+     * concurrent callers is lock-free and never loses a target —
+     * `MutableStateFlow.update` would also work, but AtomicReference
+     * keeps the semantics in plain sight and matches our existing
+     * concurrency-primitive choices elsewhere (PullBudget, etc).
+     *
+     * Fixes #300 (Red-3 N4): EventRepository writes used to
+     * unconditionally refresh both MemoWidget *and* TodayWidget, even
+     * though MemoWidget never reads eventDao. Now writes can target
+     * one widget without triggering a wasted recompose on the other.
+     */
+    private val pendingTargets = AtomicReference<Set<WidgetTarget>>(emptySet())
+
+    enum class WidgetTarget { Memo, Today }
+
+    /** Atomically add [t] to the pending set, looping on CAS contention. */
+    private fun addTarget(t: WidgetTarget) {
+        while (true) {
+            val current = pendingTargets.get()
+            if (t in current) return
+            val next = current + t
+            if (pendingTargets.compareAndSet(current, next)) return
+        }
+    }
+
+    /** Read and clear the pending set in one atomic swap. */
+    private fun drainTargets(): Set<WidgetTarget> =
+        pendingTargets.getAndSet(emptySet())
 
     /**
      * 可替换的刷新执行器。生产环境用 [GlanceWidgetUpdater] 调真实 Glance API；
@@ -141,11 +173,20 @@ object WidgetRefresher {
                 .debounce(DEBOUNCE_MS)
                 .collect {
                     val ctx = lastContext
-                    // ctx 为 null 时仍然走一次 updater（fake 允许 null；生产
-                    // GlanceWidgetUpdater 见 null 会提前返回）。保持与 refreshAllNow
-                    // 对称的容错语义。
-                    runCatching { updater.updateMemo(ctx) }
-                    runCatching { updater.updateToday(ctx) }
+                    val targets = drainTargets()
+                    // No targets accumulated (e.g. an emit fired before
+                    // any addTarget call): fall back to refreshing both
+                    // for safety. The tryEmit path that doesn't go
+                    // through addTarget is the legacy refreshAll fallback.
+                    val effective = if (targets.isEmpty()) {
+                        setOf(WidgetTarget.Memo, WidgetTarget.Today)
+                    } else targets
+                    if (WidgetTarget.Memo in effective) {
+                        runCatching { updater.updateMemo(ctx) }
+                    }
+                    if (WidgetTarget.Today in effective) {
+                        runCatching { updater.updateToday(ctx) }
+                    }
                 }
         }
     }
@@ -166,8 +207,33 @@ object WidgetRefresher {
         // 取 applicationContext 是为了避免 Activity / Service 被回收后
         // 残留的 Context 引用（Glance updateAll 会用它拿 AppWidgetManager）。
         lastContext = context?.applicationContext
+        addTarget(WidgetTarget.Memo)
+        addTarget(WidgetTarget.Today)
         // tryEmit 在 SharedFlow 有足够 buffer 或 DROP_OLDEST 策略下永远不会阻塞。
         // 若 buffer 满了会 drop 最旧的 emit —— debounce 只关心最后一次，无损。
+        refreshRequests.tryEmit(Unit)
+    }
+
+    /**
+     * Refresh only [MemoWidget] (the "recent notes" widget). Use from
+     * write paths that affect notes / single-notes but not events.
+     * Fixes #300 (Red-3 N4).
+     */
+    fun refreshMemo(context: Context?) {
+        lastContext = context?.applicationContext
+        addTarget(WidgetTarget.Memo)
+        refreshRequests.tryEmit(Unit)
+    }
+
+    /**
+     * Refresh only [TodayWidget] (events + today's memos). Use from
+     * write paths that change events but not the broader notes
+     * surface (so `MemoWidget` doesn't pay the recompose cost).
+     * Fixes #300 (Red-3 N4).
+     */
+    fun refreshToday(context: Context?) {
+        lastContext = context?.applicationContext
+        addTarget(WidgetTarget.Today)
         refreshRequests.tryEmit(Unit)
     }
 

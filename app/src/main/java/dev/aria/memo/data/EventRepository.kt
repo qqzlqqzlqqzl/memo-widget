@@ -69,7 +69,7 @@ class EventRepository(
         runCatching { AlarmScheduler.scheduleForEvent(appContext, entity) }
         // P8 widget 自推：TodayWidget 显示今天的 events + memos，event CRUD 后
         // 必须让 widget 立刻反映新事件（见 TodayWidget.provideGlance）。
-        WidgetRefresher.refreshAll(appContext)
+        WidgetRefresher.refreshToday(appContext)
         return MemoResult.Ok(entity)
     }
 
@@ -99,7 +99,7 @@ class EventRepository(
         SyncScheduler.enqueuePush(appContext)
         runCatching { AlarmScheduler.scheduleForEvent(appContext, updated) }
         // P8 widget 自推。
-        WidgetRefresher.refreshAll(appContext)
+        WidgetRefresher.refreshToday(appContext)
         return MemoResult.Ok(updated)
     }
 
@@ -112,7 +112,7 @@ class EventRepository(
         dao.tombstone(uid, System.currentTimeMillis())
         SyncScheduler.enqueuePush(appContext)
         runCatching { AlarmScheduler.cancelForUid(appContext, uid) }
-        WidgetRefresher.refreshAll(appContext)
+        WidgetRefresher.refreshToday(appContext)
         return MemoResult.Ok(Unit)
     }
 

@@ -319,6 +319,12 @@ class WidgetHookIntegrationTest {
     fun `EventRepository_create triggers widget refresh`() = runTest {
         bindRefresherTestScope()
         configureSettings()
+        // Issue #300: drain the configureSettings refreshAll before the
+        // operation under test so we can prove EventRepository hits
+        // only the Today widget — without this the previous refreshAll
+        // pollution would mask the narrower contract.
+        advanceDebounce()
+        fakeUpdater.reset()
 
         val now = System.currentTimeMillis()
         val res = eventRepo.create(
@@ -329,7 +335,7 @@ class WidgetHookIntegrationTest {
         assertTrue("create must return Ok, got $res", res is MemoResult.Ok)
 
         advanceDebounce()
-        assertHookFired("EventRepository.create")
+        assertOnlyTodayHookFired("EventRepository.create")
     }
 
     @Test
@@ -355,7 +361,7 @@ class WidgetHookIntegrationTest {
         assertTrue("update must return Ok, got $res", res is MemoResult.Ok)
 
         advanceDebounce()
-        assertHookFired("EventRepository.update")
+        assertOnlyTodayHookFired("EventRepository.update")
     }
 
     @Test
@@ -376,7 +382,7 @@ class WidgetHookIntegrationTest {
         assertTrue("delete must return Ok, got $res", res is MemoResult.Ok)
 
         advanceDebounce()
-        assertHookFired("EventRepository.delete")
+        assertOnlyTodayHookFired("EventRepository.delete")
     }
 
     // -----------------------------------------------------------------------
@@ -461,6 +467,22 @@ class WidgetHookIntegrationTest {
         assertTrue(
             "$hookName must trigger at least one updateToday, got=${fakeUpdater.todayCount.get()}",
             fakeUpdater.todayCount.get() >= 1,
+        )
+    }
+
+    /**
+     * Issue #300 (Red-3 N4): EventRepository now only refreshes the
+     * Today widget — MemoWidget never reads eventDao so refreshing it
+     * was wasted work. This helper asserts the new narrower contract.
+     */
+    private fun assertOnlyTodayHookFired(hookName: String) {
+        assertTrue(
+            "$hookName must trigger at least one updateToday, got=${fakeUpdater.todayCount.get()}",
+            fakeUpdater.todayCount.get() >= 1,
+        )
+        assertTrue(
+            "$hookName must NOT touch MemoWidget, got=${fakeUpdater.memoCount.get()}",
+            fakeUpdater.memoCount.get() == 0,
         )
     }
 
