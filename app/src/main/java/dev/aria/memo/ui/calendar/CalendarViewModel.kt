@@ -118,7 +118,14 @@ class CalendarViewModel(
         if (!mutating.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
-                eventRepo.create(summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
+                // Bug-1 H4 fix (#100): repo 返回的 Err 会被吞,改 emit 到 SyncStatusBus
+                // 让 UI 层 (CalendarScreen 的 SyncBanner) 显示 ❌ 错误。
+                val res = eventRepo.create(summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
+                if (res is dev.aria.memo.data.MemoResult.Err) {
+                    dev.aria.memo.data.sync.SyncStatusBus.emit(
+                        dev.aria.memo.data.sync.SyncStatus.Error(res.code, res.message)
+                    )
+                }
                 onDone()
             } finally {
                 mutating.set(false)
@@ -138,7 +145,12 @@ class CalendarViewModel(
         if (!mutating.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
-                eventRepo.update(uid, summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
+                val res = eventRepo.update(uid, summary, startMs, endMs, rrule = rrule, reminderMinutesBefore = reminderMinutesBefore)
+                if (res is dev.aria.memo.data.MemoResult.Err) {
+                    dev.aria.memo.data.sync.SyncStatusBus.emit(
+                        dev.aria.memo.data.sync.SyncStatus.Error(res.code, res.message)
+                    )
+                }
                 onDone()
             } finally {
                 mutating.set(false)
@@ -150,7 +162,12 @@ class CalendarViewModel(
         if (!mutating.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
-                eventRepo.delete(uid)
+                val res = eventRepo.delete(uid)
+                if (res is dev.aria.memo.data.MemoResult.Err) {
+                    dev.aria.memo.data.sync.SyncStatusBus.emit(
+                        dev.aria.memo.data.sync.SyncStatus.Error(res.code, res.message)
+                    )
+                }
                 onDone()
             } finally {
                 mutating.set(false)

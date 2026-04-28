@@ -2,6 +2,7 @@ package dev.aria.memo.ui
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -171,8 +172,10 @@ fun EditScreen(
         showDiscardDialog = true
     }
 
+    // Bug-2 #156 fix: imePadding 让 Scaffold 自动避让软键盘 — 之前键盘弹起会
+    // 遮挡 Markdown 工具栏 + 保存按钮,用户不得不收键盘才能 tap 保存。
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.imePadding(),
         topBar = {
             Column {
                 TopAppBar(

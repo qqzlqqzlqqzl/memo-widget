@@ -2,6 +2,9 @@ package dev.aria.memo.ui.notelist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import dev.aria.memo.data.sync.SyncStatus
+import dev.aria.memo.data.sync.SyncStatusBus
+import kotlinx.coroutines.flow.firstOrNull
 import androidx.lifecycle.viewModelScope
 import dev.aria.memo.data.MemoEntry
 import dev.aria.memo.data.MemoRepository
@@ -166,9 +169,20 @@ class NoteListViewModel(
         if (_refreshing.value) return
         _refreshing.value = true
         repository.refreshNow()
+        // Bug-1 H12 fix (#117): 之前 hardcoded 800ms delay 让 spinner 假装"在转",
+        // 实际 PullWorker 还在跑用户却看到 spinner 已经消失。订阅 SyncStatusBus
+        // 直到非 Syncing 才停 spinner —— 用户看到的 spinner 真实反映 worker 进度。
         viewModelScope.launch {
-            delay(800)
-            _refreshing.value = false
+            try {
+                kotlinx.coroutines.withTimeout(30_000) {
+                    SyncStatusBus.status
+                        .firstOrNull { it !is SyncStatus.Syncing }
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                // 30s 上限防 worker stuck 时 spinner 永远转,fallback 到旧 ux
+            } finally {
+                _refreshing.value = false
+            }
         }
     }
 
