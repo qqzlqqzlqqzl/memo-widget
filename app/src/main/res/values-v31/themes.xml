@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+ splash screen customization via the new SplashScreen API. -->
+    <!-- Android 12+ splash screen customisation via the new SplashScreen API.
+         Fixes #253 (UI-A #31): the previous theme only set
+         windowSplashScreenBackground, so the system fell back to rendering
+         the bare app icon. Now the splash uses our launcher foreground
+         (the same drawable the adaptive-icon's <monochrome> slot points at)
+         tinted by the primary container so it stays in-palette across
+         light / dark themes. -->
     <style name="Theme.MemoWidget.Starting" parent="Theme.MemoWidget">
         <item name="android:windowSplashScreenBackground">?attr/colorSurface</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">?attr/colorPrimaryContainer</item>
     </style>
 </resources>
