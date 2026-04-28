@@ -20,6 +20,13 @@ import java.time.format.DateTimeFormatter
 object IcsCodec {
 
     private const val PRODID = "-//memo-widget//EN"
+
+    /**
+     * Vendor X-property name we use to round-trip
+     * [EventEntity.reminderMinutesBefore] (#308 fix). Hard-coded
+     * upper-case to match our decoder's case-folding lookup.
+     */
+    private const val X_REMINDER_KEY = "X-MEMO-REMINDER-MINUTES"
     private val UTC_FMT: DateTimeFormatter = DateTimeFormatter
         .ofPattern("yyyyMMdd'T'HHmmss'Z'")
         .withZone(ZoneOffset.UTC)
@@ -58,6 +65,17 @@ object IcsCodec {
             // Fixes #28: currently produced RRULEs (FREQ=WEEKLY / FREQ=MONTHLY) have no special
             // characters, but escape anyway to guard against future RRULE values containing `,`/`;`/`\`.
             appendLine(sb, "RRULE:${encodeRRuleValue(event.rrule)}")
+        }
+        // Fixes #308 (Data-1 R17): persist the user's reminder choice
+        // as an iCalendar X-property so it survives a round-trip to
+        // GitHub. RFC 5545 §3.8.8.2 lets vendors stash app-specific
+        // values under any `X-…` key — third-party calendar apps will
+        // see this as an unknown property and ignore it harmlessly,
+        // while our [decode] reads it back into [reminderMinutesBefore].
+        // Local-only previously meant "device A's reminder vanishes
+        // when device B's PullWorker syncs the canonical .ics".
+        if (event.reminderMinutesBefore != null) {
+            appendLine(sb, "$X_REMINDER_KEY:${event.reminderMinutesBefore}")
         }
         appendLine(sb, "END:VEVENT")
         appendLine(sb, "END:VCALENDAR")
@@ -102,6 +120,10 @@ object IcsCodec {
         // basic-format length (`YYYYMMDD` has no `T`).
         val allDay = dtstart.params["VALUE"]?.equals("DATE", ignoreCase = true) == true ||
             !dtstart.value.contains('T')
+        // Fixes #308: round-trip the reminder via the vendor X-property
+        // we wrote in [encode]. Anything unparseable falls back to null
+        // so corrupt files don't crash the decode.
+        val reminder = fields[X_REMINDER_KEY]?.value?.trim()?.toIntOrNull()
         return EventEntity(
             uid = uid,
             summary = summary,
@@ -114,6 +136,7 @@ object IcsCodec {
             remoteUpdatedAt = nowMs,
             dirty = false,
             rrule = fields["RRULE"]?.value?.takeIf { it.isNotBlank() },
+            reminderMinutesBefore = reminder,
         )
     }
 

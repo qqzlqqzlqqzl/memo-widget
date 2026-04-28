@@ -213,6 +213,45 @@ END:VCALENDAR
     }
 
     @Test
+    fun `issue 308 — reminderMinutesBefore round-trips via X property`() {
+        val original = sample().copy(reminderMinutesBefore = 15)
+        val decoded = IcsCodec.decode(IcsCodec.encode(original), original.filePath, null, 0L)
+        assertNotNull(decoded)
+        assertEquals(15, decoded!!.reminderMinutesBefore)
+    }
+
+    @Test
+    fun `issue 308 — null reminder produces no X property in encoded ics`() {
+        val noReminder = sample().copy(reminderMinutesBefore = null)
+        val encoded = IcsCodec.encode(noReminder)
+        assertTrue(
+            "X-MEMO-REMINDER-MINUTES must be omitted when reminder is null",
+            !encoded.contains("X-MEMO-REMINDER-MINUTES"),
+        )
+        val decoded = IcsCodec.decode(encoded, noReminder.filePath, null, 0L)
+        assertEquals(null, decoded!!.reminderMinutesBefore)
+    }
+
+    @Test
+    fun `issue 308 — corrupt X-MEMO-REMINDER-MINUTES degrades to null`() {
+        val raw = """
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:bad-reminder
+SUMMARY:bad
+DTSTART:20260427T140000Z
+DTEND:20260427T150000Z
+X-MEMO-REMINDER-MINUTES:not-a-number
+END:VEVENT
+END:VCALENDAR
+""".trimIndent()
+        val decoded = IcsCodec.decode(raw, "events/bad.ics", null, 0L)
+        assertNotNull("malformed X-property must not break the decode", decoded)
+        assertEquals(null, decoded!!.reminderMinutesBefore)
+    }
+
+    @Test
     fun `issue 28 — rrule round trips even when value has separator characters`() {
         // Currently produced RRULEs are simple, but the encoder must not corrupt
         // arbitrary RRULE grammar (FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=10).

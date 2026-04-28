@@ -163,13 +163,17 @@ class PullWorker(
                             val text = runCatching { fileRes.value.decodedContent }.getOrNull() ?: continue
                             val nowMs = System.currentTimeMillis()
                             val decoded = IcsCodec.decode(text, item.path, item.sha, nowMs) ?: continue
-                            // S1 fix: reminder is a local-only preference (not in .ics).
-                            // Preserve whatever the user set locally, otherwise the first
-                            // remote edit to the event would silently wipe every device's
-                            // reminder back to null.
+                            // Fixes #308 (Data-1 R17): reminderMinutesBefore is now
+                            // round-tripped via the X-MEMO-REMINDER-MINUTES X-property
+                            // in the .ics body, so the decoded value already carries
+                            // the user's choice across devices. We still prefer the
+                            // local row's value when the remote .ics has no
+                            // X-property at all (legacy events written before this
+                            // fix landed) — that preserves the historical S1
+                            // semantic for already-deployed installations.
                             val merged = decoded.copy(
-                                reminderMinutesBefore = localByPath?.reminderMinutesBefore
-                                    ?: decoded.reminderMinutesBefore,
+                                reminderMinutesBefore = decoded.reminderMinutesBefore
+                                    ?: localByPath?.reminderMinutesBefore,
                             )
                             // Data-1 R13 fix: the "delete stale UID → upsert new row"
                             // sequence used to be two independent DAO calls. A process
