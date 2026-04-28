@@ -74,6 +74,12 @@ class PullWorker(
         }
 
         var anyNetwork = false
+        // Fixes #297 (Red-3 N1): track whether this pull cycle actually
+        // wrote anything to Room. If every API call returned 304 / no
+        // changes / NOT_FOUND there's no point in firing WidgetRefresher
+        // — the home-screen content is unchanged and refreshing just
+        // burns a Glance updateAll for no observable effect.
+        var roomChanged = false
 
         // P6.1 第 6 项：全局 pull 预算，四段共享。旧逻辑三段各自 50/50/50 封顶，
         // 最坏情况合计 164 次 API call，登录 PAT 用户 5000/h 虽够但 secondary
@@ -88,6 +94,10 @@ class PullWorker(
         val cachedNoteCount = noteDao.count()
         if (cachedNoteCount == 0) {
             anyNetwork = anyNetwork or bootstrapAllNotes(api, noteDao, config, budget)
+            // First-launch bootstrap is the one place we can't tell from
+            // the call site whether anything was actually upserted —
+            // assume yes so the widget renders any newly-pulled notes.
+            roomChanged = true
         }
 
         // Always also refresh the 14-day sliding window so recent edits from
@@ -114,6 +124,7 @@ class PullWorker(
                             dirty = false,
                         )
                     )
+                    roomChanged = true
                 }
                 is MemoResult.Err -> when (res.code) {
                     ErrorCode.NOT_FOUND -> Unit
@@ -176,6 +187,7 @@ class PullWorker(
                                 }
                                 eventDao.upsert(merged)
                             }
+                            roomChanged = true
                             // Keep AlarmManager in sync with the merged row. This stays
                             // OUTSIDE the transaction — AlarmManager is a process-local
                             // IPC call, not a SQLite write, and scheduling it inside
@@ -196,6 +208,7 @@ class PullWorker(
                 for (local in eventDao.snapshotAll()) {
                     if (local.dirty || local.tombstoned) continue
                     if (local.filePath !in remotePaths) {
+                        roomChanged = true
                         dev.aria.memo.notify.AlarmScheduler.cancelForUid(applicationContext, local.uid)
                         eventDao.hardDelete(local.uid)
                     }
@@ -261,6 +274,7 @@ class PullWorker(
                                 tombstoned = false,
                             )
                             singleNoteDao.upsert(entity)
+                            roomChanged = true
                         }
                         is MemoResult.Err -> when (fileRes.code) {
                             ErrorCode.NETWORK -> anyNetwork = true
@@ -274,6 +288,7 @@ class PullWorker(
                     if (local.dirty || local.tombstoned) continue
                     if (local.filePath !in remotePaths) {
                         singleNoteDao.hardDelete(local.uid)
+                        roomChanged = true
                     }
                 }
             }
@@ -289,16 +304,17 @@ class PullWorker(
             }
         }
 
-        // P8 widget 自推：不管 retry 还是 success，只要 Pull 这一轮没有直接被
-        // NOT_CONFIGURED / UNAUTHORIZED 提前拒绝，就可能 upsert 了新行
-        // （notes / events / single notes 三段都会 upsert）。即使这轮什么都没拉
-        // （远端无变化），多刷一次也无害 —— WidgetRefresher 的 debounce 会把
-        // 多次连发合并成单次 Glance updateAll。
+        // P8 widget 自推 + #297 (Red-3 N1) 短路：只在 Room 这轮真有改动时才
+        // 推 widget。三段全部 304/NOT_FOUND 就跳过——home-screen 内容根本没变，
+        // 没必要烧一次 Glance updateAll。
+        //
         // Fix-WP (Review-Q): debounced refreshAll → blocking refreshAllNow.
         // Worker exit lands in Doze's flexible window where the 400 ms
         // debounce can be reaped before Glance updateAll runs. refreshAllNow
         // runs inline so the system can't tear us down mid-render.
-        WidgetRefresher.refreshAllNow(applicationContext)
+        if (roomChanged) {
+            WidgetRefresher.refreshAllNow(applicationContext)
+        }
         return if (anyNetwork) Result.retry() else Result.success()
     }
 

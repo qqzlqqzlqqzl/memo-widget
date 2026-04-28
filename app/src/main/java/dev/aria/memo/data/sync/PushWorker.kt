@@ -79,6 +79,12 @@ class PushWorker(
 
         var retry = false
         var lastError: Pair<ErrorCode, String>? = null
+        // Fixes #297 (Red-3 N2): track Room mutations so we only fire
+        // WidgetRefresher when something actually went clean / got
+        // hard-deleted. A push cycle that fails *before* any markClean
+        // (e.g. first-attempt 401 on every row) should leave the widget
+        // alone — its content didn't change.
+        var roomChanged = false
 
         // --- notes ---------------------------------------------------------
         for (row in pendingNotes) {
@@ -119,8 +125,10 @@ class PushWorker(
                 }
             }
             when (outcome) {
-                is MemoResult.Ok ->
+                is MemoResult.Ok -> {
                     noteDao.markClean(row.path, outcome.value.content.sha, System.currentTimeMillis())
+                    roomChanged = true
+                }
                 is MemoResult.Err -> when (outcome.code) {
                     ErrorCode.NETWORK, ErrorCode.CONFLICT -> {
                         retry = true
@@ -144,6 +152,7 @@ class PushWorker(
                     val sha = row.githubSha
                     if (sha == null) {
                         eventDao.hardDelete(row.uid)
+                        roomChanged = true
                         MemoResult.Ok(Unit)
                     } else {
                         val req = GhDeleteRequest(
@@ -154,11 +163,13 @@ class PushWorker(
                         when (val res = api.deleteFile(config, row.filePath, req)) {
                             is MemoResult.Ok -> {
                                 eventDao.hardDelete(row.uid)
+                                roomChanged = true
                                 MemoResult.Ok(Unit)
                             }
                             is MemoResult.Err -> when (res.code) {
                                 ErrorCode.NOT_FOUND -> {
                                     eventDao.hardDelete(row.uid)
+                                    roomChanged = true
                                     MemoResult.Ok(Unit)
                                 }
                                 else -> MemoResult.Err(res.code, res.message)
@@ -177,6 +188,7 @@ class PushWorker(
                     when (val res = api.putFile(config, row.filePath, req)) {
                         is MemoResult.Ok -> {
                             eventDao.markClean(row.uid, res.value.content.sha, System.currentTimeMillis())
+                            roomChanged = true
                             MemoResult.Ok(Unit)
                         }
                         is MemoResult.Err -> MemoResult.Err(res.code, res.message)
@@ -210,6 +222,7 @@ class PushWorker(
                     if (sha == null) {
                         // Never made it to GitHub in the first place — just drop locally.
                         singleNoteDao.hardDelete(row.uid)
+                        roomChanged = true
                         MemoResult.Ok(Unit)
                     } else {
                         val req = GhDeleteRequest(
@@ -220,12 +233,14 @@ class PushWorker(
                         when (val res = api.deleteFile(config, row.filePath, req)) {
                             is MemoResult.Ok -> {
                                 singleNoteDao.hardDelete(row.uid)
+                                roomChanged = true
                                 MemoResult.Ok(Unit)
                             }
                             is MemoResult.Err -> when (res.code) {
                                 ErrorCode.NOT_FOUND -> {
                                     // Already gone remotely — converge.
                                     singleNoteDao.hardDelete(row.uid)
+                                    roomChanged = true
                                     MemoResult.Ok(Unit)
                                 }
                                 else -> MemoResult.Err(res.code, res.message)
@@ -254,6 +269,7 @@ class PushWorker(
                                 res.value.content.sha,
                                 System.currentTimeMillis(),
                             )
+                            roomChanged = true
                             MemoResult.Ok(Unit)
                         }
                         is MemoResult.Err -> MemoResult.Err(res.code, res.message)
@@ -305,15 +321,19 @@ class PushWorker(
                 SyncStatusBus.emit(SyncStatus.Error(lastError!!.first, lastError!!.second))
             else -> SyncStatusBus.emit(SyncStatus.Ok)
         }
-        // P8 widget 自推：Push 成功意味着 dirty 清了，widget 底部的"同步状态"
-        // （未来）要能反映；即使在 retry 分支，已经 markClean 的行也需要刷新
-        // （push 是逐行做的，有些成功有些失败，Room 可能已经部分更新）。
+        // P8 widget 自推 + #297 (Red-3 N2) 短路：only refresh when at
+        // least one row went clean / hard-deleted this cycle. A push
+        // wave that 401'd on every row before any markClean leaves the
+        // widget alone — its dirty markers are still accurate.
         //
-        // Fix-WP (Review-Q): refreshAll → refreshAllNow. Worker exit lands
-        // in Doze's flexible window where the 400 ms debounce can be reaped
-        // before Glance updateAll runs. refreshAllNow is inline so the
-        // dirty→clean transition becomes visible on the widget immediately.
-        WidgetRefresher.refreshAllNow(applicationContext)
+        // Fix-WP (Review-Q): refreshAll → refreshAllNow. Worker exit
+        // lands in Doze's flexible window where the 400 ms debounce can
+        // be reaped before Glance updateAll runs. refreshAllNow is
+        // inline so the dirty→clean transition becomes visible on the
+        // widget immediately.
+        if (roomChanged) {
+            WidgetRefresher.refreshAllNow(applicationContext)
+        }
         return if (retry) Result.retry() else Result.success()
     }
 }
