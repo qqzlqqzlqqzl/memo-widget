@@ -5,7 +5,6 @@ import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.provideContent
-import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoEntry
 import dev.aria.memo.data.MemoRepository
 import dev.aria.memo.data.MemoResult
@@ -52,52 +51,56 @@ class TodayWidget(private val clock: Clock = Clock.systemDefaultZone()) : Glance
         val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
         val dayEnd = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 
+        // Fixes #299 (Red-3 N3): short-circuit on isConfigured before
+        // hitting recentEntries / observeAll / observeBetween. The old
+        // path called recentEntries which itself looked up
+        // settings.current() and got NOT_CONFIGURED back, then we'd
+        // skip the rest — cheaper to read the gate once up front and
+        // skip every Room read entirely.
+        val isConfigured = withTimeoutOrNull(1_000) {
+            ServiceLocator.settingsStore.current().isConfigured
+        } ?: false
+        if (!isConfigured) {
+            provideContent {
+                TodayWidgetContent(
+                    isConfigured = false,
+                    date = today,
+                    events = emptyList(),
+                    memos = emptyList(),
+                )
+            }
+            return
+        }
+
         // P8：把 memos 从 6 提到 20。LazyColumn 自己会滚，小 widget 仍能看前几条。
         //
         // Perf-fix C3（对 TodayWidget 的镜像处理）：`repo.recentEntries` 内部要先
         // settings.current()（虽然 C1 之后已 flowOn IO）+ 查 Room + parseEntries。
         // 冷路径叠加给 widget ANR 留的余量非常薄，这里也套一层 3s 保护；timeout
-        // 发生时降级为"已配置 + 空列表"，下一轮 widget tick 再试。
+        // 发生时降级为空列表，下一轮 widget tick 再试。
         //
-        // Fixes #331 (Agent 6 W-4): the previous query only read today's
-        // legacy day-file (`config.filePathFor(today)`) and ignored
-        // single-note rows that fall on today's date entirely. A user
-        // who only writes single-notes saw an empty TodayWidget even
-        // when they'd just saved a note. Merge both sources, filtered to
-        // today's date, and sort newest-first.
+        // Fixes #331 (Agent 6 W-4): merge legacy day-file entries with
+        // single-note rows that fall on today's date so single-note
+        // writers don't see an empty TodayWidget.
         val memoResult = withTimeoutOrNull(3_000) { repo.recentEntries(limit = 20) }
-        val isConfigured: Boolean
-        val legacyMemos: List<MemoEntry>
-        when (memoResult) {
-            is MemoResult.Ok -> { isConfigured = true; legacyMemos = memoResult.value }
-            is MemoResult.Err -> {
-                isConfigured = memoResult.code != ErrorCode.NOT_CONFIGURED
-                legacyMemos = emptyList()
-            }
-            null -> { isConfigured = true; legacyMemos = emptyList() }
+        val legacyMemos: List<MemoEntry> = when (memoResult) {
+            is MemoResult.Ok -> memoResult.value
+            else -> emptyList()
         }
-        val singleNoteMemos: List<MemoEntry> = if (isConfigured) {
-            withTimeoutOrNull(2_000) {
-                ServiceLocator.singleNoteRepo.observeAll().first()
-                    .asSequence()
-                    .filter { it.date == today }
-                    .map { MemoEntry(date = it.date, time = it.time, body = it.body) }
-                    .toList()
-            } ?: emptyList()
-        } else {
-            emptyList()
-        }
+        val singleNoteMemos: List<MemoEntry> = withTimeoutOrNull(2_000) {
+            ServiceLocator.singleNoteRepo.observeAll().first()
+                .asSequence()
+                .filter { it.date == today }
+                .map { MemoEntry(date = it.date, time = it.time, body = it.body) }
+                .toList()
+        } ?: emptyList()
         val memos: List<MemoEntry> = (legacyMemos + singleNoteMemos)
             .sortedByDescending { it.time }
             .take(20)
 
-        val events: List<EventEntity> = if (isConfigured) {
-            withTimeoutOrNull(2_000) {
-                eventRepo.observeBetween(dayStart, dayEnd).first()
-            } ?: emptyList()
-        } else {
-            emptyList()
-        }
+        val events: List<EventEntity> = withTimeoutOrNull(2_000) {
+            eventRepo.observeBetween(dayStart, dayEnd).first()
+        } ?: emptyList()
 
         provideContent {
             TodayWidgetContent(
