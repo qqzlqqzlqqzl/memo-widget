@@ -124,8 +124,14 @@ open class MemoRepository(
         // widget 显示的内容就已经变了。NETWORK/CONFLICT 降级成 Ok 的分支也必须刷新，
         // 因为对用户而言"保存成功"了。只有真实 Err（比如 NOT_CONFIGURED）才跳过 —
         // 那种情况 Room 根本没 upsert。
+        //
+        // Fixes #305 (Data-1 R14/R15): use refreshAllNow (inline,
+        // non-debounced) on the save path so a "save → screen-off"
+        // sequence within the 400 ms debounce window can't lose the
+        // updateAll. Other refresh paths (settings change, sync
+        // worker) keep the debounced refreshAll.
         if (result is MemoResult.Ok) {
-            WidgetRefresher.refreshAll(appContext)
+            WidgetRefresher.refreshAllNow(appContext)
         }
         return result
     }
@@ -261,7 +267,9 @@ open class MemoRepository(
             }
             if (found) SyncScheduler.enqueuePush(appContext)
         }
-        WidgetRefresher.refreshAll(appContext)
+        // Fixes #305: refreshAllNow on togglePin so the pin star
+        // visibly updates without waiting for the 400 ms debounce.
+        WidgetRefresher.refreshAllNow(appContext)
         // Bug-1 M10 fix (#131): 不存在路径返 NOT_FOUND 不再静默 Ok,
         // caller 可以 dispatch UX 反馈。
         return if (found) MemoResult.Ok(Unit)
@@ -454,8 +462,10 @@ open class MemoRepository(
         }
         // P8 widget 自推：只要 Room 被改过（Ok 或降级成 Ok 的分支），widget 要刷新。
         // 失败分支（NOT_FOUND / CONFLICT-stale / UNKNOWN）Room 没 upsert，跳过。
+        // Fixes #305: refreshAllNow so the toggleTodoLine UI commits
+        // visibly without waiting for the 400 ms debounce window.
         if (result is MemoResult.Ok) {
-            WidgetRefresher.refreshAll(appContext)
+            WidgetRefresher.refreshAllNow(appContext)
         }
         return result
     }

@@ -110,7 +110,11 @@ open class SingleNoteRepository(
         // NOT_CONFIGURED→Ok 路径：用户从未配置 → 配置 PAT 后，widget 要能从
         // prompt 态切到笔记列表。这里无需判 result 类型 —— create 的设计里，
         // dao.upsert 永远先于 return，能走到这一行就说明 Room 已经变了。
-        WidgetRefresher.refreshAll(appContext)
+        //
+        // Fixes #305 (Data-1 R14/R15): refreshAllNow on save paths so a
+        // "save → screen-off" sequence inside the 400 ms debounce
+        // window can't lose the updateAll.
+        WidgetRefresher.refreshAllNow(appContext)
         return result
     }
 
@@ -136,7 +140,9 @@ open class SingleNoteRepository(
             MemoResult.Ok(updated)
         }
         // P8 widget 自推：body/title 改动会影响 widget 列表显示。
-        WidgetRefresher.refreshAll(appContext)
+        // Fixes #305: refreshAllNow on update so the body/title change
+        // commits visibly before the 400 ms debounce expires.
+        WidgetRefresher.refreshAllNow(appContext)
         return result
     }
 
