@@ -46,7 +46,10 @@ class TagListViewModel(
         TagListUiState(root = TagIndexer.index(files, singleNotes, tagCache))
     }
         .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, TagListUiState())
+        // Fixes #322 (Perf-1 M5): WhileSubscribed(5_000) so the tag
+        // index pipeline stops re-running 5s after the user leaves
+        // the Tags tab.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), TagListUiState())
 
     companion object {
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {

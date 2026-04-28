@@ -105,7 +105,12 @@ class CalendarViewModel(
                 daySummary = DaySummary(events = dayEvents, memos = dayMemos),
                 markedDates = eb.eventMarkers + nMarkers,
             )
-        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, CalendarUiState())
+        }
+            .flowOn(Dispatchers.Default)
+            // Fixes #322 (Perf-1 M5): WhileSubscribed(5_000) so the
+            // event expansion + day-marker recompute stops 5s after
+            // the user leaves the Calendar tab.
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), CalendarUiState())
 
     fun selectDate(date: LocalDate) { _selected.value = date }
 

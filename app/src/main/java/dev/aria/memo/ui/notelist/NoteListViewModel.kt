@@ -225,7 +225,16 @@ class NoteListViewModel(
                 isOnline = online,
                 dirtyCount = dirty,
             )
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, NoteListUiState())
+        }.stateIn(
+            viewModelScope,
+            // Fixes #322 (Perf-1 M5): WhileSubscribed(5_000) lets the
+            // upstream Room flow stop collecting 5s after the screen
+            // detaches. Three VMs running combine() pipelines in
+            // parallel on app launch was burning Default-dispatcher
+            // time even on tabs the user hadn't visited yet.
+            SharingStarted.WhileSubscribed(5_000L),
+            NoteListUiState(),
+        )
 
     private fun parsedEntriesCached(path: String, content: String, date: LocalDate): List<MemoEntry> {
         val hash = content.hashCode()
