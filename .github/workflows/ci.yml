@@ -143,6 +143,29 @@ jobs:
   # connectedDebugAndroidTest 跑 app/src/androidTest/ 下的 WidgetSmokeTest +
   # WidgetBddTest 共 9 条 executable BDD scenarios。
   # 仅在 master push 触发避免拖慢 PR feedback (emulator 12-18 分钟首次启动)。
+  # Dep-1 #23 fix (#272): submit the resolved Gradle dependency graph to
+  # GitHub's Dependabot vulnerability scanner. Master pushes only — feature
+  # branches don't need fresh manifests on every commit. Lightweight (~30s).
+  dependency-graph:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Strip aliyun mirrors for CI
+        run: sed -i '/maven\.aliyun\.com/d' settings.gradle.kts
+
+      - name: Submit dependency graph
+        uses: gradle/actions/dependency-submission@v4
+
   android-instrumented:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
