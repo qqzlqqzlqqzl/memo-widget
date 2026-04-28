@@ -48,7 +48,14 @@ private typealias LoadSingleNote = suspend (String) -> SingleNoteEntity?
 private typealias DeleteSingleNote = suspend (String) -> MemoResult<Unit>
 
 class EditViewModel @VisibleForTesting internal constructor(
-    private val appendToday: AppendToday,
+    // Fixes #321 (Arch-1 #9): no longer captured into a private field —
+    // production save() uses createSingleNote/updateSingleNote
+    // exclusively. The parameter is kept only so ~10 existing
+    // EditViewModelSingleNoteTest call sites that still pass it
+    // continue to compile; rewrite scheduled separately to keep this
+    // change mechanical.
+    @Suppress("UNUSED_PARAMETER")
+    appendToday: AppendToday = { MemoResult.Err(ErrorCode.UNKNOWN, "appendToday no longer wired (#321)") },
     private val toggleTodoLine: ToggleTodoLine,
     private val createSingleNote: CreateSingleNote,
     private val updateSingleNote: UpdateSingleNote,
@@ -64,7 +71,8 @@ class EditViewModel @VisibleForTesting internal constructor(
         singleNoteRepo: SingleNoteRepository,
         noteUid: String? = null,
     ) : this(
-        appendToday = { body -> repository.appendToday(body) },
+        // appendToday omitted — uses the parameter default, no longer
+        // bound to repository.appendToday since save() doesn't call it.
         toggleTodoLine = { p, i, raw, c -> repository.toggleTodoLine(p, i, raw, c) },
         createSingleNote = { body -> singleNoteRepo.create(body) },
         updateSingleNote = { uid, body -> singleNoteRepo.update(uid, body) },
@@ -73,58 +81,12 @@ class EditViewModel @VisibleForTesting internal constructor(
         noteUid = noteUid,
     )
 
-    /**
-     * Test-friendly constructor kept for existing suites that only stub the
-     * legacy repository hooks. Pre-P6.1 tests call this and assert against
-     * [AppendToday]; to keep those passing without duplicating every case, we
-     * fan the create-single-note path back through the injected [appendToday]
-     * so the dedup / idempotency / error-replay assertions still exercise the
-     * same fake. Real production wiring goes through the primary constructor
-     * and so hits the actual single-note repository.
-     */
-    @VisibleForTesting
-    @Deprecated(
-        message = "Fixes #54 (P6.1): legacy 3-arg adapter exists only to keep " +
-            "pre-P6.1 DoubleTapSaveTest green while the test suite migrates to " +
-            "the 4-deps primary constructor (see EditViewModelSingleNoteTest). " +
-            "Do NOT use in new tests — the `appendToday` assertion semantic " +
-            "here actually exercises the create-single-note path via a fake " +
-            "adapter. Targeted for removal in P8.1.",
-    )
-    internal constructor(
-        appendToday: AppendToday,
-        toggleTodoLine: ToggleTodoLine,
-        clock: () -> Long = { System.currentTimeMillis() },
-    ) : this(
-        appendToday = appendToday,
-        toggleTodoLine = toggleTodoLine,
-        createSingleNote = { body ->
-            // Adapt the Unit-returning legacy fake into the single-note shape
-            // so the generic save() path can consume the result uniformly.
-            when (val res = appendToday(body)) {
-                is MemoResult.Ok -> MemoResult.Ok(
-                    SingleNoteEntity(
-                        uid = "test-uid",
-                        filePath = "notes/test.md",
-                        title = "",
-                        body = body,
-                        date = java.time.LocalDate.now(),
-                        time = java.time.LocalTime.now().withNano(0).withSecond(0),
-                        isPinned = false,
-                        githubSha = null,
-                        localUpdatedAt = 0L,
-                        remoteUpdatedAt = null,
-                        dirty = true,
-                    )
-                )
-                is MemoResult.Err -> res
-            }
-        },
-        updateSingleNote = { _, _ -> MemoResult.Err(ErrorCode.UNKNOWN, "not wired in this test") },
-        loadSingleNote = { null },
-        noteUid = null,
-        clock = clock,
-    )
+    // Fixes #321 (Arch-1 #8): the deprecated 3-arg legacy constructor
+    // is gone — DoubleTapSaveTest now wires the primary 6-deps ctor
+    // through a local makeVm() helper. The `AppendToday` typealias and
+    // the `appendToday` parameter on the primary ctor remain only as
+    // an injection hook for the production constructor's
+    // `repository.appendToday` binding; save() never calls it.
 
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()

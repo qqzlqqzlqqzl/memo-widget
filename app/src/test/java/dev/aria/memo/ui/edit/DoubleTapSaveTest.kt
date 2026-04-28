@@ -2,6 +2,7 @@ package dev.aria.memo.ui.edit
 
 import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoResult
+import dev.aria.memo.data.local.SingleNoteEntity
 import dev.aria.memo.ui.EditViewModel
 import dev.aria.memo.ui.SaveState
 import kotlinx.coroutines.Dispatchers
@@ -52,16 +53,52 @@ class DoubleTapSaveTest {
         Dispatchers.resetMain()
     }
 
+    /**
+     * Issue #321 (Arch-1 #8/#9): the deprecated 3-arg legacy
+     * constructor is gone. Tests now build the VM through the primary
+     * 6-deps constructor; this helper adapts the old `appendToday`
+     * Unit-returning fake into a `createSingleNote` shape so the
+     * dedup / idempotency assertions still exercise the same callback.
+     */
+    private fun makeVm(
+        appendToday: suspend (String) -> MemoResult<Unit>,
+        clock: () -> Long = { System.currentTimeMillis() },
+    ): EditViewModel = EditViewModel(
+        appendToday = { _ -> MemoResult.Err(ErrorCode.UNKNOWN, "legacy not used") },
+        toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
+        createSingleNote = { body ->
+            when (val res = appendToday(body)) {
+                is MemoResult.Ok -> MemoResult.Ok(testEntity(body))
+                is MemoResult.Err -> res
+            }
+        },
+        updateSingleNote = { _, _ -> MemoResult.Err(ErrorCode.UNKNOWN, "n/a") },
+        loadSingleNote = { null },
+        noteUid = null,
+        clock = clock,
+    )
+
+    private fun testEntity(body: String): SingleNoteEntity = SingleNoteEntity(
+        uid = "test-uid",
+        filePath = "notes/test.md",
+        title = "",
+        body = body,
+        date = java.time.LocalDate.now(),
+        time = java.time.LocalTime.now().withNano(0).withSecond(0),
+        isPinned = false,
+        githubSha = null,
+        localUpdatedAt = 0L,
+        remoteUpdatedAt = null,
+        dirty = true,
+    )
+
     @Test
     fun `second tap after Success-reset does NOT re-invoke appendToday`() = runTest {
         val callCount = AtomicInteger(0)
-        val vm = EditViewModel(
-            appendToday = { _ ->
-                callCount.incrementAndGet()
-                MemoResult.Ok(Unit)
-            },
-            toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
-        )
+        val vm = makeVm(appendToday = { _ ->
+            callCount.incrementAndGet()
+            MemoResult.Ok(Unit)
+        })
 
         // --- first tap ---------------------------------------------------
         vm.save("foo")
@@ -102,13 +139,10 @@ class DoubleTapSaveTest {
         // would finish the first save before the second tap registers; since
         // this test wants two overlapping taps, we accept the same Unconfined
         // fast-path and verify via the lastCommittedBody dedup instead.
-        val vm = EditViewModel(
-            appendToday = { _ ->
-                callCount.incrementAndGet()
-                MemoResult.Ok(Unit)
-            },
-            toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
-        )
+        val vm = makeVm(appendToday = { _ ->
+            callCount.incrementAndGet()
+            MemoResult.Ok(Unit)
+        })
 
         // Rapid-fire four taps. Before the fix the second-through-fourth
         // would append. With the dedup window they all collapse into one.
@@ -127,13 +161,10 @@ class DoubleTapSaveTest {
     @Test
     fun `distinct bodies after Success still save normally`() = runTest {
         val bodies = mutableListOf<String>()
-        val vm = EditViewModel(
-            appendToday = { body ->
-                bodies.add(body)
-                MemoResult.Ok(Unit)
-            },
-            toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
-        )
+        val vm = makeVm(appendToday = { body ->
+            bodies.add(body)
+            MemoResult.Ok(Unit)
+        })
 
         vm.save("alpha")
         vm.reset()
@@ -151,12 +182,11 @@ class DoubleTapSaveTest {
         // a narrow safety net, not a permanent block.
         val clock = AtomicInteger(0)
         val calls = AtomicInteger(0)
-        val vm = EditViewModel(
+        val vm = makeVm(
             appendToday = { _ ->
                 calls.incrementAndGet()
                 MemoResult.Ok(Unit)
             },
-            toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
             clock = { clock.get().toLong() },
         )
 
@@ -178,13 +208,10 @@ class DoubleTapSaveTest {
         // who accidentally adds a trailing space before tapping again still
         // hits the guard.
         val calls = AtomicInteger(0)
-        val vm = EditViewModel(
-            appendToday = { _ ->
-                calls.incrementAndGet()
-                MemoResult.Ok(Unit)
-            },
-            toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
-        )
+        val vm = makeVm(appendToday = { _ ->
+            calls.incrementAndGet()
+            MemoResult.Ok(Unit)
+        })
 
         vm.save("foo")
         vm.reset()
@@ -200,18 +227,15 @@ class DoubleTapSaveTest {
         // anything yet.
         val calls = AtomicInteger(0)
         var firstCall = true
-        val vm = EditViewModel(
-            appendToday = { _ ->
-                calls.incrementAndGet()
-                if (firstCall) {
-                    firstCall = false
-                    MemoResult.Err(ErrorCode.UNKNOWN, "boom")
-                } else {
-                    MemoResult.Ok(Unit)
-                }
-            },
-            toggleTodoLine = { _, _, _, _ -> MemoResult.Ok(Unit) },
-        )
+        val vm = makeVm(appendToday = { _ ->
+            calls.incrementAndGet()
+            if (firstCall) {
+                firstCall = false
+                MemoResult.Err(ErrorCode.UNKNOWN, "boom")
+            } else {
+                MemoResult.Ok(Unit)
+            }
+        })
 
         vm.save("foo")
         assertTrue("first save must surface Error", vm.state.value is SaveState.Error)
