@@ -233,11 +233,24 @@ private fun TagRow(
             modifier = Modifier.weight(1f),
         )
         if (row.entryCount > 0) {
-            Text(
-                text = row.entryCount.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // Fixes #244 (UI-A #15): wrap the count in a pill (Surface +
+            // CircleShape + secondaryContainer) so the number reads as a
+            // deliberate badge rather than a stray label hanging off the
+            // right edge of the row.
+            androidx.compose.material3.Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Text(
+                    text = row.entryCount.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(
+                        horizontal = MemoSpacing.sm,
+                        vertical = 2.dp,
+                    ),
+                )
+            }
         }
     }
 }

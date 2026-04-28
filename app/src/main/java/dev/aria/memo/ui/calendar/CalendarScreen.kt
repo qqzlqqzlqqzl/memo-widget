@@ -271,10 +271,13 @@ private fun DayCell(
                 style = MaterialTheme.typography.bodyMedium,
             )
             if (marked && inMonth) {
+                // Fixes #243 (UI-A #27): bumped from 4dp to 6dp so the
+                // marker is visible on high-DPI devices. The cell still
+                // has plenty of padding for the dot to land cleanly.
                 Spacer(Modifier.height(2.dp))
                 Box(
                     modifier = Modifier
-                        .size(4.dp)
+                        .size(6.dp)
                         .clip(CircleShape)
                         .background(if (selected) MaterialTheme.colorScheme.onPrimary else markerTint),
                 )

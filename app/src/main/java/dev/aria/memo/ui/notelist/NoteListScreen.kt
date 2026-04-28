@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -245,10 +246,20 @@ private fun SyncBanner(status: SyncStatus, onDismiss: () -> Unit) {
                 .fillMaxWidth()
                 .padding(horizontal = MemoSpacing.lg, vertical = MemoSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
         ) {
+            // Fixes #229 (UI-A #20): a leading icon makes the banner
+            // legible as an error at a glance — pure text on
+            // errorContainer was too subtle for the status to register
+            // when the user was scrolling the list. Body text bumped
+            // to bodyMedium for the same reason.
+            Icon(
+                imageVector = Icons.Filled.SyncProblem,
+                contentDescription = null,
+            )
             Text(
                 text = "同步失败：${err.message}",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onDismiss) {
@@ -410,7 +421,10 @@ private fun LazyListScope.renderItems(
 
 private val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy 年 MM 月 dd 日 EEEE")
 private val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-private val SINGLE_DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("MM/dd")
+// Fixes #245 (UI-A #28): align with the Chinese-style DayHeader so a
+// SingleNote row reads as "4月21日 15:30" instead of the slash-form
+// "04/21 15:30" that visually clashed with the header above it.
+private val SINGLE_DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("M月d日")
 
 @Composable
 private fun DayHeader(

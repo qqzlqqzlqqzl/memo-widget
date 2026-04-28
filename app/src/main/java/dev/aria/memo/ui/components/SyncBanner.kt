@@ -4,6 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SyncProblem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -12,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.sync.SyncStatus
 import dev.aria.memo.ui.theme.MemoSpacing
@@ -52,11 +57,18 @@ fun SyncBanner(
                 .fillMaxWidth()
                 .padding(horizontal = MemoSpacing.lg, vertical = MemoSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(MemoSpacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
         ) {
+            // Fixes #229 (UI-A #20): leading icon makes the banner
+            // immediately readable as an error.
+            Icon(
+                imageVector = Icons.Filled.SyncProblem,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
             Text(
                 text = "同步失败：${err.message}",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
             if (err.code == ErrorCode.UNAUTHORIZED) {
