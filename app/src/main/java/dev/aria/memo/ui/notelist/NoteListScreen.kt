@@ -309,7 +309,14 @@ private fun NoteListBody(
                 }
             } else null,
             singleLine = true,
-            shape = dev.aria.memo.ui.theme.MemoShapes.button,
+            // Fixes #254 (UI-A #32): swap the 12dp button shape for a
+            // pill so the field reads as a search box (not a generic
+            // input). M3's full SearchBar/DockedSearchBar is a more
+            // invasive replacement that would lose our existing
+            // OutlinedTextField error/leading/trailing wiring; the
+            // pill captures the visual contract of the M3 search
+            // pattern without rebuilding the rest.
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = MemoSpacing.sm),

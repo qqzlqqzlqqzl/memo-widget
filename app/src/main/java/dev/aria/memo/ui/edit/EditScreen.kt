@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -515,21 +518,50 @@ private fun MarkdownToolbar(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
 ) {
+    // Fixes #249 (UI-A #18): the previous flat LazyRow of 10 icons
+    // gave the toolbar no visual rhythm — bold and `<hr>` looked
+    // equally prominent. Split into three semantic groups separated
+    // by VerticalDividers:
+    //   - inline format: bold / italic / heading
+    //   - block format: ul / ol / checkbox / quote
+    //   - insert object: link / code block / hr
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(MemoSpacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
+        // group 1: inline format
         item { ToolbarIconButton(Icons.Filled.FormatBold, "加粗") { onValueChange(applyWrap(value, "**", "**")) } }
         item { ToolbarIconButton(Icons.Filled.FormatItalic, "斜体") { onValueChange(applyWrap(value, "*", "*")) } }
         item { ToolbarIconButton(Icons.Filled.Title, "标题") { onValueChange(applyHeadingCycle(value)) } }
+        item { ToolbarGroupDivider() }
+        // group 2: block format
         item { ToolbarIconButton(Icons.AutoMirrored.Filled.FormatListBulleted, "无序列表") { onValueChange(applyLinePrefix(value, "- ")) } }
         item { ToolbarIconButton(Icons.Filled.FormatListNumbered, "有序列表") { onValueChange(applyLinePrefix(value, "1. ")) } }
         item { ToolbarIconButton(Icons.Filled.CheckBox, "复选框") { onValueChange(applyLinePrefix(value, "- [ ] ")) } }
+        item { ToolbarIconButton(Icons.Filled.FormatQuote, "引用") { onValueChange(applyLinePrefix(value, "> ")) } }
+        item { ToolbarGroupDivider() }
+        // group 3: insert object
         item { ToolbarIconButton(Icons.Filled.Link, "链接") { onValueChange(applyLink(value)) } }
         item { ToolbarIconButton(Icons.Filled.Code, "代码块") { onValueChange(applyWrap(value, "```\n", "\n```")) } }
-        item { ToolbarIconButton(Icons.Filled.FormatQuote, "引用") { onValueChange(applyLinePrefix(value, "> ")) } }
         item { ToolbarIconButton(Icons.Filled.HorizontalRule, "横线") { onValueChange(applyBlockInsert(value, "\n---\n")) } }
     }
+}
+
+/**
+ * Thin vertical divider used between toolbar action groups
+ * (#249). Keeps the bar reading as three buckets rather than ten
+ * undifferentiated buttons.
+ */
+@Composable
+private fun ToolbarGroupDivider() {
+    Spacer(Modifier.width(MemoSpacing.xs))
+    androidx.compose.material3.VerticalDivider(
+        modifier = Modifier.height(24.dp),
+        thickness = 1.dp,
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
+    Spacer(Modifier.width(MemoSpacing.xs))
 }
 
 @Composable
