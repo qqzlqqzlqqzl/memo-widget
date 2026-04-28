@@ -159,8 +159,15 @@ class SettingsStore(
         // P8 widget 自推：isConfigured 可能从 false→true（用户首次填完 PAT/owner/repo）
         // 或 true→false（用户清空 PAT）。两种变化 widget 都要立刻切换态——未配置
         // 显示"先打开 app 配置 GitHub PAT"，已配置显示笔记列表。
-        // 即便 isConfigured 没变（比如只改 branch），刷新也无副作用，统一 fire-and-forget。
-        WidgetRefresher.refreshAll(context.applicationContext)
+        //
+        // Fixes #292 (Red-3 S3): only fire the widget refresh when the
+        // `isConfigured` boolean actually flipped. Branch-only edits
+        // (or reformatting whitespace into the same effective value)
+        // shouldn't make the home-screen widget flicker — the rendered
+        // content is identical.
+        if (before.isConfigured != after.isConfigured) {
+            WidgetRefresher.refreshAll(context.applicationContext)
+        }
 
         // Fixes #113 (Bug-1 H10): when the user finishes typing a fresh PAT
         // (typically after a previous push hit 401 UNAUTHORIZED and parked
