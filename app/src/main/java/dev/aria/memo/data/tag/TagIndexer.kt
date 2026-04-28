@@ -2,6 +2,7 @@ package dev.aria.memo.data.tag
 
 import dev.aria.memo.data.MemoRepository
 import dev.aria.memo.data.local.NoteFileEntity
+import dev.aria.memo.data.local.SingleNoteEntity
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -48,36 +49,43 @@ object TagIndexer {
     // `#work/meeting/2026` is parsed as a 3-level path.
     private val TAG_REGEX = Regex("#([A-Za-z0-9_\\u4e00-\\u9fa5]+(?:/[A-Za-z0-9_\\u4e00-\\u9fa5]+)*)")
 
-    fun indexAll(files: List<NoteFileEntity>): TagNode {
-        // Mutable tree keyed by segment name. We build it bottom-up then freeze
-        // into immutable TagNodes at the end.
+    fun indexAll(
+        files: List<NoteFileEntity>,
+        // Bug-1 H11 fix (#115): single-note tags 也要扫,否则用户在 Obsidian-style
+        // 单笔记里写 #tag 会"隐身"——TagListScreen 看不到。Default emptyList 保持
+        // 调用方兼容(已有 caller 不传 single notes 也能跑)。
+        singleNotes: List<SingleNoteEntity> = emptyList(),
+    ): TagNode {
         val root = MutableNode(name = "")
 
         for (file in files) {
             val entries = MemoRepository.parseEntries(file.content, file.date)
             for (entry in entries) {
-                val seen = HashSet<String>()
-                for (match in TAG_REGEX.findAll(entry.body)) {
-                    val full = match.groupValues[1]
-                    // De-dupe identical tag mentions inside the same entry — one
-                    // match per (entry, tag path) is enough for UI purposes.
-                    if (!seen.add(full)) continue
-                    val segments = full.split('/').filter { it.isNotEmpty() }
-                    if (segments.isEmpty()) continue
-                    var node = root
-                    for (seg in segments) {
-                        node = node.children.getOrPut(seg) { MutableNode(seg) }
-                    }
-                    node.entries += TagMatch(
-                        date = entry.date,
-                        time = entry.time,
-                        body = entry.body,
-                    )
-                }
+                indexBody(root, entry.body, entry.date, entry.time)
             }
+        }
+        // Bug-1 H11 fix: 同样规则扫 single-note body。
+        for (note in singleNotes) {
+            if (note.tombstoned) continue
+            indexBody(root, note.body, note.date, note.time)
         }
 
         return root.freeze()
+    }
+
+    private fun indexBody(root: MutableNode, body: String, date: LocalDate, time: LocalTime) {
+        val seen = HashSet<String>()
+        for (match in TAG_REGEX.findAll(body)) {
+            val full = match.groupValues[1]
+            if (!seen.add(full)) continue
+            val segments = full.split('/').filter { it.isNotEmpty() }
+            if (segments.isEmpty()) continue
+            var node = root
+            for (seg in segments) {
+                node = node.children.getOrPut(seg) { MutableNode(seg) }
+            }
+            node.entries += TagMatch(date = date, time = time, body = body)
+        }
     }
 
     private class MutableNode(val name: String) {

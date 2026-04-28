@@ -204,7 +204,12 @@ class PullWorker(
             is MemoResult.Err -> when (res.code) {
                 ErrorCode.NOT_FOUND -> Unit // no events/ dir yet
                 ErrorCode.NETWORK -> anyNetwork = true
-                ErrorCode.UNAUTHORIZED -> return Result.success()
+                ErrorCode.UNAUTHORIZED -> {
+                    // Bug-1 M15 fix (#138): UNAUTHORIZED 在所有段都 emit banner,
+                    // 之前 events/notes 段 silent return 让用户看不到 401。
+                    SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, "GitHub 拒绝访问"))
+                    return Result.success()
+                }
                 else -> Unit
             }
         }
@@ -275,7 +280,11 @@ class PullWorker(
             is MemoResult.Err -> when (res.code) {
                 ErrorCode.NOT_FOUND -> Unit // no notes/ dir yet
                 ErrorCode.NETWORK -> anyNetwork = true
-                ErrorCode.UNAUTHORIZED -> return Result.success()
+                ErrorCode.UNAUTHORIZED -> {
+                    // Bug-1 M15 fix (#138): 同样 banner emit。
+                    SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, "GitHub 拒绝访问"))
+                    return Result.success()
+                }
                 else -> Unit
             }
         }

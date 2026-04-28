@@ -10,6 +10,7 @@ import dev.aria.memo.data.tag.TagNode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -24,8 +25,14 @@ class TagListViewModel(
     private val repository: MemoRepository,
 ) : ViewModel() {
 
-    val state: StateFlow<TagListUiState> = repository.observeNotes()
-        .map { files -> TagListUiState(root = TagIndexer.indexAll(files)) }
+    // Bug-1 H11 fix (#115): combine day-files + single-notes,让 TagIndexer 同时
+    // 扫两套数据源,#tag 在 single-note 里也能被发现。
+    val state: StateFlow<TagListUiState> = combine(
+        repository.observeNotes(),
+        ServiceLocator.singleNoteRepo.observeAll(),
+    ) { files, singleNotes ->
+        TagListUiState(root = TagIndexer.indexAll(files, singleNotes))
+    }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, TagListUiState())
 
