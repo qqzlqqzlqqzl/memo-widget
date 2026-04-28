@@ -118,6 +118,35 @@ fun EventEditDialog(
     val endInstant = selectedDate.atTime(endHour, endMin).atZone(zone).toInstant()
     val endBeforeStart = endInstant.isBefore(startInstant) || endInstant == startInstant
 
+    // Fixes #182 (Bug-2 Critical#6): trash icon now opens this confirm
+    // dialog instead of deleting on first tap. State lives at the
+    // composable scope so it survives recomposition + IME flips.
+    var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
+
+    if (showDeleteConfirm && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("确定删除？") },
+            text = {
+                Text(
+                    "将删除事件「${summary.trim().ifBlank { "（未命名）" }}」。" +
+                        "这条事件会立即从本地消失，下一次同步时也会从 GitHub 仓库删除。",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                ) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            },
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(28.dp),
@@ -132,7 +161,13 @@ fun EventEditDialog(
         dismissButton = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (onDelete != null) {
-                    IconButton(onClick = onDelete) {
+                    // Fixes #182 (Bug-2 Critical#6): the trash icon used
+                    // to fire onDelete directly. A misclick = 1-second
+                    // permanent delete with no second chance. Now we
+                    // open a confirmation dialog; only "确认删除" actually
+                    // calls onDelete. The Snackbar Undo affordance still
+                    // lives on the calendar list (#X2 fix).
+                    IconButton(onClick = { showDeleteConfirm = true }) {
                         Icon(Icons.Filled.Delete, contentDescription = "删除")
                     }
                 }
