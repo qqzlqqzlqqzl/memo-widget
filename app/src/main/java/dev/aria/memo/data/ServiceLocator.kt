@@ -52,8 +52,27 @@ object ServiceLocator {
     val appContext: Context
         get() = requireNotNull(_appContext) { "ServiceLocator.init() not called" }
 
+    /**
+     * Synchronization gate for [init]. Fixes #330 (Agent 6 W-3): the
+     * previous `if (_memoRepo != null) return` was a non-atomic
+     * read-modify-write — under cold-boot WorkManager racing
+     * Application.onCreate two threads could both observe null,
+     * both build a Room database + Ktor client, and the loser's
+     * instances would leak (Ktor connection pool, DataStore writers).
+     * `synchronized(initLock)` collapses concurrent calls into one
+     * builder pass.
+     */
+    private val initLock = Any()
+
     fun init(context: Context) {
         if (_memoRepo != null) return
+        synchronized(initLock) {
+            if (_memoRepo != null) return // double-checked: another thread already initialised.
+            initLocked(context)
+        }
+    }
+
+    private fun initLocked(context: Context) {
         val appContext = context.applicationContext
         _appContext = appContext
         val client = HttpClient(CIO) {
