@@ -281,28 +281,6 @@ open class MemoRepository(
             FrontMatterCodec.strip(text)
 
         /**
-         * Return true when [text] currently carries a front matter block with
-         * `pinned: true`. Tolerates quoted values and extra whitespace.
-         */
-        internal fun readPinnedFromFrontMatter(text: String): Boolean {
-            val normalized = text.replace("\r\n", "\n")
-            if (!normalized.startsWith("---\n")) return false
-            val close = normalized.indexOf("\n---", 4)
-            if (close < 0) return false
-            val block = normalized.substring(4, close)
-            for (raw in block.split('\n')) {
-                val line = raw.trim()
-                if (line.isEmpty() || line.startsWith("#")) continue
-                val idx = line.indexOf(':')
-                if (idx <= 0) continue
-                val key = line.substring(0, idx).trim()
-                val value = line.substring(idx + 1).trim().trim('"', '\'')
-                if (key == "pinned") return value.equals("true", ignoreCase = true)
-            }
-            return false
-        }
-
-        /**
          * Rewrite [content] so it has exactly the right front matter for
          * [pinned]. Delegates to [FrontMatterCodec.applyPin].
          */

@@ -2,8 +2,8 @@ package dev.aria.memo.data
 
 import dev.aria.memo.data.MemoRepository.Companion.applyPinFrontMatter
 import dev.aria.memo.data.MemoRepository.Companion.parseEntries
-import dev.aria.memo.data.MemoRepository.Companion.readPinnedFromFrontMatter
 import dev.aria.memo.data.MemoRepository.Companion.stripFrontMatter
+import dev.aria.memo.data.notes.FrontMatterCodec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -43,10 +43,33 @@ class MemoRepositoryPinTest {
     }
 
     @Test
-    fun `readPinnedFromFrontMatter detects true and false`() {
+    fun `pin marker round-trips through FrontMatterCodec parse`() {
+        // Issue #105 (Data-1 R6): the read- and write-side YAML parsers used
+        // to disagree (the read side stripped quotes, the codec was strict).
+        // Now both go through FrontMatterCodec.parse, so a value we wrote
+        // ourselves must come back identically.
         val pinned = applyPinFrontMatter(original, pinned = true)
-        assertTrue(readPinnedFromFrontMatter(pinned))
-        assertFalse(readPinnedFromFrontMatter(original))
+        val pinnedFm = FrontMatterCodec.parse(pinned).frontMatter["pinned"]
+        assertEquals("true", pinnedFm)
+        val originalFm = FrontMatterCodec.parse(original).frontMatter["pinned"]
+        assertEquals(null, originalFm)
+    }
+
+    @Test
+    fun `quoted pin value is treated as user YAML, not our pin marker`() {
+        // Issue #105: with the lenient reader gone, `pinned: "true"` (quoted)
+        // is no longer mistaken for our marker — it's preserved as user-
+        // authored YAML, exactly matching what FrontMatterCodec.applyPin
+        // does on the write side.
+        val withQuotes = "---\npinned: \"true\"\nauthor: alice\n---\n\nbody\n"
+        val parsed = FrontMatterCodec.parse(withQuotes).frontMatter
+        // The codec preserves the literal value (quotes included).
+        assertEquals("\"true\"", parsed["pinned"])
+        assertEquals("alice", parsed["author"])
+        // applyPin(false) must not touch a non-strict-bool block — that's
+        // user-authored YAML.
+        val unchanged = applyPinFrontMatter(withQuotes, pinned = false)
+        assertEquals(withQuotes, unchanged)
     }
 
     @Test
