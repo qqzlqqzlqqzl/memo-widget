@@ -34,7 +34,11 @@ class EventAlarmReceiver : BroadcastReceiver() {
 
         val pending = goAsync()
         val appContext = context.applicationContext
-        CoroutineScope(Dispatchers.Default).launch {
+        // Fixes #320 (Perf-1 M6): same rationale as BootReceiver — Room
+        // reads + AlarmManager IPC are IO-bound, not CPU-bound. Using
+        // Dispatchers.IO matches the work; Default produced spurious
+        // context switches with no upside.
+        CoroutineScope(Dispatchers.IO).launch {
             try {
                 dev.aria.memo.data.ServiceLocator.init(appContext) // defensive
                 AlarmScheduler.rescheduleForUid(appContext, uid)

@@ -30,7 +30,13 @@ class BootReceiver : BroadcastReceiver() {
         if (action !in HANDLED_ACTIONS) return
         val pending = goAsync()
         val appContext = context.applicationContext
-        CoroutineScope(Dispatchers.Default).launch {
+        // Fixes #320 (Perf-1 M6): switched from Dispatchers.Default to
+        // Dispatchers.IO. AlarmScheduler.rescheduleAll() iterates every
+        // event row out of Room (an IO-bound read) and schedules
+        // PendingIntents (an IPC binder call). Default is for CPU-bound
+        // work; using it here just made Room re-context-switch into IO
+        // internally with no upside.
+        CoroutineScope(Dispatchers.IO).launch {
             try {
                 ServiceLocator.init(appContext)
                 AlarmScheduler.rescheduleAll(appContext)
