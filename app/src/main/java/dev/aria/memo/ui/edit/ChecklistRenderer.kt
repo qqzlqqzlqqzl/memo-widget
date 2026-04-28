@@ -13,6 +13,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -109,18 +111,27 @@ private fun ChecklistRow(
     line: ChecklistLine,
     onToggle: (Boolean) -> Unit,
 ) {
+    // Bug-2 #162 fix: 用户连续快速点 checkbox 会触发多个 onToggle → 多次 toggleTodoLine
+    // → race / dirty cycle / Push 多次。lastToggleAt 维护 200ms cooldown,在 cool 内
+    // 忽略后续 toggle (lossy 但 visual checkbox state 由 line.checked 反映,UX 不受影响)。
+    val lastToggleAt = remember { mutableLongStateOf(0L) }
+    val debouncedToggle: (Boolean) -> Unit = { newChecked ->
+        val now = System.currentTimeMillis()
+        if (now - lastToggleAt.longValue >= 200L) {
+            lastToggleAt.longValue = now
+            onToggle(newChecked)
+        }
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Indent: 8 dp per column of leading whitespace. Keeps nested todos
-        // readable without pulling in a full-blown Markdown renderer.
         if (line.indent > 0) {
             Spacer(modifier = Modifier.width((line.indent * 8).dp))
         }
         Checkbox(
             checked = line.checked,
-            onCheckedChange = onToggle,
+            onCheckedChange = debouncedToggle,
         )
         Text(
             text = line.text,

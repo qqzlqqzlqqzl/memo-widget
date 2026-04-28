@@ -82,11 +82,16 @@ fun AiChatScreen(
         }
     }
 
-    // Auto-scroll to the freshest message on every new turn so the user's view
-    // tracks the conversation without manual fiddling.
+    // Bug-2 #169 fix: auto-scroll 仅在用户**已在底部**时触发,否则用户在阅读
+    // 历史会被强制拽走。判定:lastVisibleItemIndex 在 lastIndex-1 之内 = 在底部。
     LaunchedEffect(state.messages.size, state.isSending) {
         if (state.messages.isNotEmpty()) {
-            listState.animateScrollToItem(state.messages.lastIndex)
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalSize = listState.layoutInfo.totalItemsCount
+            // 用户在底部 (距离最后一项不超过 1) 才自动跟随;在历史阅读则不动。
+            if (totalSize == 0 || lastVisible >= totalSize - 2) {
+                listState.animateScrollToItem(state.messages.lastIndex)
+            }
         }
     }
 
