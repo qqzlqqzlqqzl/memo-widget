@@ -109,14 +109,30 @@ fun AppNav(onOpenEditor: () -> Unit) {
         // NavHost 的 enterTransition/exitTransition。原来 AnimatedContent 的 _ 参数
         // 不用会被 lint 误报 UnusedContentLambdaTargetStateParameter。
         // 语义不变 — tab 切换仍然是 150ms 淡入淡出（M3 Expressive "subtle" token）。
+        //
+        // Fixes #232 (A11y Warning#10): when the user enables Android's
+        // "remove animations" system setting, animator_duration_scale is
+        // set to 0. Read it from Settings.Global so vestibular-sensitive
+        // users get an instant snap instead of a 150ms cross-fade.
+        val a11yContext = androidx.compose.ui.platform.LocalContext.current
+        val tabFadeMs = remember(a11yContext) {
+            val scale = runCatching {
+                android.provider.Settings.Global.getFloat(
+                    a11yContext.contentResolver,
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                    1f,
+                )
+            }.getOrDefault(1f)
+            if (scale == 0f) 0 else 150
+        }
         NavHost(
             navController = nav,
             startDestination = Tab.Notes.route,
             modifier = Modifier.fillMaxSize(),
-            enterTransition = { fadeIn(tween(150)) },
-            exitTransition = { fadeOut(tween(150)) },
-            popEnterTransition = { fadeIn(tween(150)) },
-            popExitTransition = { fadeOut(tween(150)) },
+            enterTransition = { fadeIn(tween(tabFadeMs)) },
+            exitTransition = { fadeOut(tween(tabFadeMs)) },
+            popEnterTransition = { fadeIn(tween(tabFadeMs)) },
+            popExitTransition = { fadeOut(tween(tabFadeMs)) },
         ) {
                 composable(Tab.Notes.route) {
                     val vm: NoteListViewModel = viewModel(factory = NoteListViewModel.Factory)

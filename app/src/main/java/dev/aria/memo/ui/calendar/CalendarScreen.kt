@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -245,13 +248,31 @@ private fun DayCell(
     val fgColor = when {
         selected -> MaterialTheme.colorScheme.onPrimary
         isToday && inMonth -> MaterialTheme.colorScheme.onPrimaryContainer
-        !inMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        // Fixes #230 (A11y Warning#8): the previous alpha 0.4 for
+        // out-of-month dates dropped the contrast below WCAG AA 3:1
+        // on dark backgrounds. Bumped to 0.6 — still reads as "not
+        // the focal month" but stays legible for low-vision users.
+        !inMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         else -> MaterialTheme.colorScheme.onSurface
     }
     val markerTint = MaterialTheme.colorScheme.tertiary
+    // Fixes #226 / #228 (A11y Warning#6 / Warning#7): TalkBack used to
+    // read "Button, 5" with no date or event-count context, and the
+    // tap target was the cell's natural ~30dp width (under the 48dp
+    // a11y minimum). The contentDescription now spells out the full
+    // weekday + month/day + event count; the outer Box guarantees a
+    // 48dp minimum hit slot via `sizeIn(min = 48.dp)`.
+    val cellLabel = buildString {
+        append(day.date.format(A11Y_DAY_FMT))
+        if (isToday) append("，今天")
+        if (selected) append("，已选中")
+        if (marked) append("，有事件") else append("，无事件")
+        if (!inMonth) append("，非本月")
+    }
     Box(
         modifier = Modifier
             .aspectRatio(1f)
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             .padding(MemoSpacing.xs)
             // Fix-7 #8 (UI-A report): previously today/selected cells were
             // CircleShape while normal days were 12dp rounded rects, so each
@@ -260,7 +281,8 @@ private fun DayCell(
             // keeps the calendar grid visually consistent.
             .clip(CircleShape)
             .background(bgColor)
-            .clickable(enabled = inMonth) { onClick() },
+            .clickable(enabled = inMonth) { onClick() }
+            .semantics { contentDescription = cellLabel },
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -412,3 +434,11 @@ private fun EventRow(occ: EventOccurrence, onClick: () -> Unit) {
  * one change. Fixes #241 (UI-A #26).
  */
 private val FAB_GUTTER = 56.dp + 32.dp
+
+/**
+ * Date format used by [DayCell]'s contentDescription so TalkBack reads
+ * each day as e.g. "2026 年 4 月 5 日 星期日" instead of bare "5".
+ * Fixes #226 (A11y Warning#6).
+ */
+private val A11Y_DAY_FMT: java.time.format.DateTimeFormatter =
+    java.time.format.DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日 EEEE")
