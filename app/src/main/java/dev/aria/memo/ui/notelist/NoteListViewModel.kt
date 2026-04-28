@@ -2,19 +2,21 @@ package dev.aria.memo.ui.notelist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import dev.aria.memo.data.sync.SyncStatus
-import dev.aria.memo.data.sync.SyncStatusBus
-import kotlinx.coroutines.flow.firstOrNull
 import androidx.lifecycle.viewModelScope
 import dev.aria.memo.data.MemoEntry
 import dev.aria.memo.data.MemoRepository
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.SingleNoteRepository
-import kotlinx.coroutines.delay
+import dev.aria.memo.data.sync.SyncStatus
+import dev.aria.memo.data.sync.SyncStatusBus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -127,13 +129,41 @@ class NoteListViewModel(
     private val legacyGroups = repository.observeNotes()
     private val singleNotes = singleNoteRepo.observeAll()
 
-    val state: StateFlow<NoteListUiState> =
-        combine(legacyGroups, singleNotes, _query, _refreshing) { files, singles, q, r ->
+    /**
+     * Per-instance memo for legacy `parseEntries` results, keyed on the
+     * file path. The value pairs the content's hash with the parsed list
+     * so we can cheaply detect "same file, same content" emissions and
+     * skip the regex re-run. Bodies that genuinely changed re-parse and
+     * overwrite the slot.
+     *
+     * Fixes #122 (Perf-1 H1): when one row in `note_files` updates, every
+     * other row's content was being re-parsed for no reason — at 100+
+     * legacy days that translated to 100–300ms of regex work per emission.
+     */
+    private val parseCache: MutableMap<String, Pair<Int, List<MemoEntry>>> = HashMap()
+
+    /** Same idea for single-note previews — preview building strips a YAML
+     *  block and trims, both O(n) on body length. Cache keyed on uid. */
+    private val previewCache: MutableMap<String, Pair<Int, String>> = HashMap()
+
+    /**
+     * Heavy-lifting pipeline: parsing + sorting. Stays out of the per-
+     * keystroke path because `_query` and `_refreshing` are merged in
+     * downstream — a typo in the search field no longer triggers a fresh
+     * parseEntries pass over the entire library (Fixes #122).
+     *
+     * `flowOn(Dispatchers.Default)` keeps the regex / hashing off the
+     * Main dispatcher; the downstream combine that produces the final
+     * UiState stays on the StateFlow's dispatcher (Eagerly → caller's).
+     */
+    private val baseItems: Flow<List<NoteListUiItem>> =
+        combine(legacyGroups, singleNotes) { files, singles ->
             val legacyItems: List<NoteListUiItem> = files.map { f ->
+                val parsed = parsedEntriesCached(f.path, f.content, f.date)
                 NoteListUiItem.LegacyDay(
                     DayGroup(
                         date = f.date,
-                        entries = MemoRepository.parseEntries(f.content, f.date),
+                        entries = parsed,
                         dirty = f.dirty,
                         path = f.path,
                         pinned = f.isPinned,
@@ -145,7 +175,7 @@ class NoteListViewModel(
                     uid = s.uid,
                     path = s.filePath,
                     title = s.title,
-                    preview = buildPreview(s.body),
+                    preview = previewCached(s.uid, s.body),
                     date = s.date,
                     time = s.time,
                     pinned = s.isPinned,
@@ -154,9 +184,36 @@ class NoteListViewModel(
                     dirty = s.dirty,
                 )
             }
-            val merged = (legacyItems + singleItems).sortedWith(ITEM_ORDER)
-            NoteListUiState(items = merged, query = q, isRefreshing = r)
+            // Evict cache entries whose files / notes are no longer present so
+            // long-running sessions don't accumulate stale parses for deleted
+            // rows.
+            parseCache.keys.retainAll(files.mapTo(HashSet()) { it.path })
+            previewCache.keys.retainAll(singles.mapTo(HashSet()) { it.uid })
+            (legacyItems + singleItems).sortedWith(ITEM_ORDER)
+        }.flowOn(Dispatchers.Default)
+
+    val state: StateFlow<NoteListUiState> =
+        combine(baseItems, _query, _refreshing) { items, q, r ->
+            NoteListUiState(items = items, query = q, isRefreshing = r)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, NoteListUiState())
+
+    private fun parsedEntriesCached(path: String, content: String, date: LocalDate): List<MemoEntry> {
+        val hash = content.hashCode()
+        val cached = parseCache[path]
+        if (cached != null && cached.first == hash) return cached.second
+        val parsed = MemoRepository.parseEntries(content, date)
+        parseCache[path] = hash to parsed
+        return parsed
+    }
+
+    private fun previewCached(uid: String, body: String): String {
+        val hash = body.hashCode()
+        val cached = previewCache[uid]
+        if (cached != null && cached.first == hash) return cached.second
+        val built = buildPreview(body)
+        previewCache[uid] = hash to built
+        return built
+    }
 
     init {
         // Kick an initial pull so the list has content on first open.

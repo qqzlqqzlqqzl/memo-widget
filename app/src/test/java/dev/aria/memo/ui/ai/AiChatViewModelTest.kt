@@ -209,12 +209,16 @@ class AiChatViewModelTest {
         val s = vm.state.value
         assertEquals(false, s.isSending)
         assertNotNull("error must be non-null after failed send", s.error)
-        // Optimistic user message should still be appended so the user sees
-        // their turn in the transcript and can retry.
+        // Bug-1 H8 (#108): on Err the optimistic user turn is rolled back AND
+        // the input field is restored, so the user can retry without
+        // re-typing. The assistant never received this turn — leaving it in
+        // the transcript would conflict with the multi-turn context fed to
+        // [AiClient] on retry.
         assertTrue(
-            "transcript should contain the user's failed attempt",
-            s.messages.any { it.role == "user" && it.content == "anything" },
+            "user turn must be rolled back so the transcript is clean",
+            s.messages.none { it.role == "user" && it.content == "anything" },
         )
+        assertEquals("input must be restored for retry", "anything", s.input)
     }
 
     @Test
