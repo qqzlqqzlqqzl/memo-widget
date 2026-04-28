@@ -30,7 +30,9 @@ object FrontMatterCodec {
         // pinned) was lost. Strip a BOM and any leading blank lines
         // before the gate; the body returned to callers retains the
         // original fullBody untouched on the no-front-matter path.
-        val stripped = fullBody.removePrefix("﻿")
+        // Use the escape sequence rather than a literal U+FEFF in the
+        // source so Android Lint's ByteOrderMark check stays happy.
+        val stripped = if (fullBody.isNotEmpty() && fullBody[0].code == 0xFEFF) fullBody.substring(1) else fullBody
         val normalized = stripped
             .replace("\r\n", "\n")
             .trimStart('\n')
