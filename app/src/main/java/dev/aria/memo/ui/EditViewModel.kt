@@ -287,7 +287,12 @@ class EditViewModel @VisibleForTesting internal constructor(
      */
     fun toggleChecklist(lineIndex: Int, rawLine: String, newChecked: Boolean) {
         val currentPath = _path.value
-        if (currentPath.isBlank()) return
+        if (currentPath.isBlank()) {
+            // Perf-1 H4 fix (#128): 之前 silent return 让用户勾 checkbox 完全无反应。
+            // 现在 emit Error 让 UI 显示 "笔记还在加载,请稍候再试" 反馈。
+            _state.value = SaveState.Error(ErrorCode.UNKNOWN, "笔记还在加载,请稍候再试")
+            return
+        }
         val currentBody = _body.value
         val lines = currentBody.split("\n").toMutableList()
         if (lineIndex !in lines.indices) return
