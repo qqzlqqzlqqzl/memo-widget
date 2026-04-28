@@ -177,18 +177,21 @@ class AiChatViewModel(
                         )
                     }
                     is MemoResult.Err -> {
+                        // Bug-1 H8 fix (#108): 发送失败恢复 input + 移除已 append
+                        // 的 userTurn (因为远端没接到),让用户不必重输入直接 retry。
                         _state.value = _state.value.copy(
+                            messages = snapshot.messages,
+                            input = text,
                             isSending = false,
                             error = result.message,
                         )
                     }
                 }
             } catch (t: Throwable) {
-                // Belt on top of the firstOrNull() suspenders: any other
-                // unexpected throwable from the repo / codec / client path
-                // is mapped to a visible error instead of escaping
-                // viewModelScope and crashing the chat.
                 _state.value = _state.value.copy(
+                    // Bug-1 H8 fix (#108): 同样恢复 input + 回退 userTurn。
+                    messages = snapshot.messages,
+                    input = text,
                     isSending = false,
                     error = t.message ?: t.javaClass.simpleName,
                 )
