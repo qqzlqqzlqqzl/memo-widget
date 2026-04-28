@@ -23,7 +23,17 @@ object FrontMatterCodec {
      * 任一非空行不是合法 `key: value` 时退回 Parsed(emptyMap, fullBody)。
      */
     fun parse(fullBody: String): Parsed {
-        val normalized = fullBody.replace("\r\n", "\n")
+        // Fixes #139 (Data-1 R5): iOS / Obsidian editors sometimes write
+        // a UTF-8 BOM (U+FEFF) or a leading blank line in front of the
+        // YAML fence, which made the previous strict startsWith("---\n")
+        // check return the body verbatim — the front matter (including
+        // pinned) was lost. Strip a BOM and any leading blank lines
+        // before the gate; the body returned to callers retains the
+        // original fullBody untouched on the no-front-matter path.
+        val stripped = fullBody.removePrefix("﻿")
+        val normalized = stripped
+            .replace("\r\n", "\n")
+            .trimStart('\n')
         if (!normalized.startsWith("---\n") && normalized != "---") {
             return Parsed(emptyMap(), fullBody)
         }

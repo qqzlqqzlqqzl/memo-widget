@@ -330,13 +330,22 @@ internal interface WidgetUpdater {
  * 冷启动时序把 null 推到这里，我们 no-op 而不是 NPE。
  */
 internal object GlanceWidgetUpdater : WidgetUpdater {
+    // Fixes #133 (Perf-1 H6): hoist the GlanceAppWidget instances to
+    // singleton vals so `updateAll` calls don't allocate a fresh
+    // MemoWidget / TodayWidget every refresh. Both classes hold no
+    // mutable state — TodayWidget's `clock` parameter defaults to
+    // Clock.systemDefaultZone() and is only overridden in tests, so
+    // the production path is safe to memoize at object scope.
+    private val memoWidget = dev.aria.memo.widget.MemoWidget()
+    private val todayWidget = dev.aria.memo.widget.TodayWidget()
+
     override suspend fun updateMemo(context: Context?) {
         if (context == null) return
-        dev.aria.memo.widget.MemoWidget().updateAll(context)
+        memoWidget.updateAll(context)
     }
 
     override suspend fun updateToday(context: Context?) {
         if (context == null) return
-        dev.aria.memo.widget.TodayWidget().updateAll(context)
+        todayWidget.updateAll(context)
     }
 }
