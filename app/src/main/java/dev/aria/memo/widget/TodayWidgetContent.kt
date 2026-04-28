@@ -217,17 +217,21 @@ private fun EventLine(event: EventEntity) {
             .clickable(actionStartActivity(Intent(context, MainActivity::class.java))),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Fixes #234 (A11y Warning#9): the time column used to be a hard
+        // 92dp, which truncated to "8:00–9:" at 200% font scale. Drop
+        // the fixed width and let the time text wrap naturally; the
+        // summary bumps to maxLines = 2 so a long event title can also
+        // fit a second line at large font sizes instead of clipping.
         Text(
             text = "${start.format(TIME_FMT)}–${end.format(TIME_FMT)}",
             style = TextStyle(color = GlanceTheme.colors.primary, fontWeight = FontWeight.Bold),
-            modifier = GlanceModifier.width(92.dp),
         )
         Spacer(modifier = GlanceModifier.width(6.dp))
         Text(
             text = event.summary,
             style = TextStyle(color = GlanceTheme.colors.onBackground),
-            maxLines = 1,
-            modifier = GlanceModifier.fillMaxWidth(),
+            maxLines = 2,
+            modifier = GlanceModifier.defaultWeight(),
         )
     }
 }
@@ -243,17 +247,20 @@ private fun MemoLine(memo: MemoEntry) {
             .clickable(actionStartActivity(Intent(context, EditActivity::class.java))),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Fixes #234 (A11y Warning#9): same drop-the-fixed-width pattern
+        // as the EventLine — let the time wrap naturally and let the
+        // memo body take the remaining space via defaultWeight, with
+        // maxLines = 2 so 200% font scale doesn't clip the second word.
         Text(
             text = memo.time.format(TIME_FMT),
             style = TextStyle(color = GlanceTheme.colors.secondary, fontWeight = FontWeight.Bold),
-            modifier = GlanceModifier.width(52.dp),
         )
         Spacer(modifier = GlanceModifier.width(6.dp))
         Text(
             text = memo.body.firstLinePreview(),
             style = TextStyle(color = GlanceTheme.colors.onBackground),
-            maxLines = 1,
-            modifier = GlanceModifier.fillMaxWidth(),
+            maxLines = 2,
+            modifier = GlanceModifier.defaultWeight(),
         )
     }
 }
