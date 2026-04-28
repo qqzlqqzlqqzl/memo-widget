@@ -167,7 +167,12 @@ class EditViewModel @VisibleForTesting internal constructor(
         // won out — we must not clobber it with the just-loaded saved copy.
         if (noteUid != null) {
             viewModelScope.launch {
-                val entity = loadSingleNote(noteUid)
+                // Bug-1 M14 fix: 包 try/catch 防 loadSingleNote crash 拖垮 ViewModel。
+                // DAO 在迁移失败 / DB 损坏 / Room 未初始化时可能抛 IllegalStateException
+                // 或 SQLiteException;以前 unhandled exception → 崩 viewModelScope →
+                // Editor 永远空白没法 recover。现在静默 fallback 到 empty body,用户能继续打字
+                // 自己 save 一条新的(虽然 uid 可能是旧 zombie,但比 crash 强)。
+                val entity = runCatching { loadSingleNote(noteUid) }.getOrNull()
                 if (entity != null) {
                     _path.value = entity.filePath
                     if (_body.value.isEmpty()) {
