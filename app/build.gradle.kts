@@ -14,8 +14,8 @@ android {
         applicationId = "dev.aria.memo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30
-        versionName = "0.12.17-p8"
+        versionCode = 31
+        versionName = "0.12.18-p8"
 
         // Fix-W3 / Fix-WidgetBdd: required for instrumented test discovery on
         // emulator (CI android-instrumented job) — without this the runner
@@ -41,6 +41,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Sideload-only signing: use the project debug keystore so the
+            // resulting APK installs on user devices via "Install from
+            // unknown source". A real Play Store keystore (with secrets in
+            // GitHub Actions) is tracked as #274 / #288 — when that lands,
+            // this block flips to the release config.
+            signingConfig = signingConfigs.getByName("debug")
         }
         debug {
             isMinifyEnabled = false
