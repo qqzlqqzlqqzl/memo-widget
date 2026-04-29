@@ -37,6 +37,23 @@
 -keep class androidx.glance.** { *; }
 -dontwarn androidx.glance.**
 
+# Glance widgets and ActionCallbacks are instantiated REFLECTIVELY by the
+# framework — manifest receivers (MemoWidgetReceiver / TodayWidgetReceiver)
+# `new MemoWidget()` etc. R8 only sees the receiver field assignment, not
+# the actual class identity, so without this keep rule it strips MemoWidget
+# / TodayWidget and the receiver crashes with ClassNotFoundException at
+# install / first-fire time. PackageManager rejects the install when it
+# can't resolve the receiver's referenced class.
+#
+# Also keep all of `dev.aria.memo.widget.**` because the receiver classes,
+# the `Toasting…Action` callbacks (referenced via `actionRunCallback<T>()`
+# generic-erased reflection), and the helpers (e.g. WidgetItemId) are all
+# part of the same reflective surface.
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget { *; }
+-keep class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver { *; }
+-keep class * implements androidx.glance.appwidget.action.ActionCallback { *; }
+-keep class dev.aria.memo.widget.** { *; }
+
 # ===== Room (P4) =====
 # Room generates `<Entity>_Impl` / `<Dao>_Impl` classes at build time and
 # looks them up reflectively — must survive minification.
@@ -62,6 +79,17 @@
 -keep class * extends androidx.work.Worker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
+
+# ===== Manifest-declared components (Activity / Receiver / Application) =====
+# Each of these is instantiated by the system via reflection on the class
+# name in AndroidManifest.xml. Even though R8's default keep rules cover
+# Activity / Application etc., explicitly listing our `dev.aria.memo` namespace
+# makes the contract obvious and prevents silent strips when someone adds
+# a new Receiver / Service.
+-keep class dev.aria.memo.MemoApplication { *; }
+-keep class dev.aria.memo.MainActivity { *; }
+-keep class dev.aria.memo.EditActivity { *; }
+-keep class * extends android.content.BroadcastReceiver { *; }
 
 # ===== Navigation Compose (P4) =====
 -keepnames class androidx.navigation.** { *; }
