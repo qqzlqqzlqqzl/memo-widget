@@ -1,5 +1,5 @@
 [versions]
-agp = "8.7.3"
+agp = "8.10.1"
 # Kotlin patch bump 2.0.10 → 2.0.21 (P9-revisit dep wave, conservative
 # patch-only upgrade). KSP version-locked to Kotlin via the
 # `<kotlin>-<ksp>` suffix; bump to the matching 2.0.21-1.0.28.
@@ -19,7 +19,7 @@ kotlinx-datetime = "0.6.1"
 kotlinx-coroutines = "1.8.1"
 material = "1.12.0"
 junit = "4.13.2"
-room = "2.8.4"
+room = "2.6.1"
 workmanager = "2.9.1"
 security-crypto = "1.1.0"
 navigation-compose = "2.8.4"
