@@ -62,6 +62,16 @@ P8.4 — 30-bucket parallel review-driven fix。先用 30 个 review subagent �
 - **30 个 fix subagent 在独立 worktree 并行修复**：30 桶按文件归属切分，零文件重叠，git apply 时零冲突；3 处 B17/B21 zone wiring + B18/B19 onDeleted（Glance 默认已自带 cleanup，spurious override 还原）+ B24 refreshAll 测试可观察性 在合并阶段手动协调修复。
 - **6 路并行 test 验证**：`testDebugUnitTest`（3223 全绿）+ `minifyReleaseWithR8`（0 missing-class）+ `lintDebug`（0 ERROR）+ `assembleDebug`（24.8MB APK）+ `compileDebugAndroidTestKotlin`（编译过）+ CI emulator BDD instrumented（9 scenario 全绿）。
 
+### UI test infrastructure (post-p8.4 follow-up)
+- **加 Compose UI test 基础设施**：`androidx.compose.ui:ui-test-junit4` (androidTest) + `ui-test-manifest` (debug)，按 Compose BOM 2026.05 钉版，启用 `androidx.compose.ui.test.junit4.v2.createComposeRule`（v1 在 BOM 2026.05 已 deprecated）。在此之前 `app/src/androidTest/` 只有 9 条 widget 内部机制测试（`WidgetSmokeTest` + `WidgetBddTest`），任何屏幕级 UI 行为都没回归网。
+- **`MemoEmptyStateUiTest`**（2 条）：title-only / title+subtitle 渲染。
+- **`OnboardingDialogUiTest`**（2 条）：3 屏 onboarding 步进 + "稍后" 跳过路径。
+- **`SyncBannerUiTest`**（4 条）：UNAUTHORIZED / NOT_CONFIGURED 显示"去设置"按钮、NETWORK 仅显示"知道了"、按键回调正确。
+- **`OfflineBannerUiTest`**（3 条）：online 早返回 / offline+queue 显示计数 / offline+空 queue 显示安抚文案。
+- **`MemoCardUiTest`**（3 条）：内容渲染 + click + long-click 各唤起一次。
+- **`PatStatusCardUiTest`**（6 条）：5 个 `PatStatus` 状态 + 未配置分支，每个验证 headline + 按钮回调。
+- **CI emulator instrumented 现包含 widget 9 + UI 20 = 29 条**。后续 UI 改动有真正的 happy-path 自动化保护。
+
 ### Known Limits / Deferred to Next Wave
 - **i18n 二期**：50+ 处 Compose / Glance / Toast 硬编码中文未抽到 `strings.xml`、`values-en/strings.xml` 未建、`DateTimeFormatter.ofPattern("yyyy 年 MM 月 dd 日")` 等硬模板未改 `Locale.getDefault()`、`CalendarScreen` 一处硬编码 `Locale.SIMPLIFIED_CHINESE`。
 - **a11y 二期**：`MemoCard` / `DayCell` 缺 `Role.Button`、`ChecklistRow` 未合并 `semantics(mergeDescendants)`、`ScrollAwareFab` 折叠态 `contentDescription = null`、`CloudOff` 装饰图标可聚焦但无操作。
