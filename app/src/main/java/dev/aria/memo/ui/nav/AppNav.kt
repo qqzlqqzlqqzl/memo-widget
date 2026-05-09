@@ -8,8 +8,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -84,20 +88,20 @@ fun AppNav(onOpenEditor: () -> Unit) {
                             }
                         },
                         icon = {
-                            // P8 Fix-7 #6 原计划"选中=Filled / 未选=Outlined"（M3 惯例），
-                            // 但当前 Compose BOM 2024.09 下 Icons.Outlined.X 的 receiver
-                            // 契约破坏性变更导致编译失败。降级为全 Filled；
-                            // 选中态靠 NavigationBar 自带 pill indicator 区分。
-                            // P8.1 升级 Compose BOM 到 2026.03+ 后再恢复 Outlined 切换。
-                            Icon(
-                                imageVector = when (tab) {
-                                    Tab.Notes -> Icons.AutoMirrored.Filled.Notes
-                                    Tab.Tags -> Icons.AutoMirrored.Filled.Label
-                                    Tab.Calendar -> Icons.Filled.CalendarMonth
-                                    Tab.Settings -> Icons.Filled.Settings
-                                },
-                                contentDescription = null,
-                            )
+                            // M3 惯例：选中态用 Filled、未选用 Outlined，配合 pill
+                            // indicator 形成清晰的 active/inactive 视觉对比。Compose
+                            // BOM 2026.05 起 Outlined 系列稳定，可以恢复这个切换。
+                            val imageVector = when (tab) {
+                                Tab.Notes -> if (isSelected) Icons.AutoMirrored.Filled.Notes
+                                    else Icons.AutoMirrored.Outlined.Notes
+                                Tab.Tags -> if (isSelected) Icons.AutoMirrored.Filled.Label
+                                    else Icons.AutoMirrored.Outlined.Label
+                                Tab.Calendar -> if (isSelected) Icons.Filled.CalendarMonth
+                                    else Icons.Outlined.CalendarMonth
+                                Tab.Settings -> if (isSelected) Icons.Filled.Settings
+                                    else Icons.Outlined.Settings
+                            }
+                            Icon(imageVector = imageVector, contentDescription = null)
                         },
                         label = { Text(tab.label) },
                     )

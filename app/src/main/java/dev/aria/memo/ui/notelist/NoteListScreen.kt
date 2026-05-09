@@ -341,10 +341,8 @@ private fun NoteListBody(
             if (query.isBlank()) {
                 MemoEmptyState(
                     icon = Icons.AutoMirrored.Outlined.Notes,
-                    // Fix-6 (Bug-2 hint): promote long-press as an entry point
-                    // so the "问 AI" / "删除" menu isn't invisible.
                     title = "还没有笔记",
-                    subtitle = "点右下角「写一条」开始记录 · 长按条目可问 AI 或删除",
+                    subtitle = "点右下角「写一条」开始记录",
                 )
             } else {
                 MemoEmptyState(

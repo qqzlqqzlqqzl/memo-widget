@@ -252,7 +252,7 @@ fun SettingsScreen(
             // above the first field. Switched to the standard `TopAppBar`
             // which keeps the title crisp without pushing content down.
             TopAppBar(
-                title = { Text("Memo Widget · 设置") },
+                title = { Text("设置") },
                 scrollBehavior = scrollBehavior,
             )
         },

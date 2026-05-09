@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -119,9 +121,9 @@ fun AiChatScreen(
         if (!state.isConfigured) {
             Box(modifier = Modifier.fillMaxSize().padding(inner)) {
                 MemoEmptyState(
-                    icon = Icons.Filled.Settings,
-                    title = "未配置 AI",
-                    subtitle = "在设置页填入 Provider URL / API Key / Model",
+                    icon = Icons.Outlined.Psychology,
+                    title = "AI 还没配置",
+                    subtitle = "去「设置」填好 Provider URL / API Key / 模型名再回来",
                 )
             }
             return@Scaffold
@@ -141,9 +143,9 @@ fun AiChatScreen(
             if (state.messages.isEmpty()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     MemoEmptyState(
-                        icon = Icons.Filled.Settings,
+                        icon = Icons.AutoMirrored.Outlined.Chat,
                         title = "还没有对话",
-                        subtitle = "在下方输入你的问题开始聊天",
+                        subtitle = "在下方输入框开始问吧",
                     )
                 }
             } else {
