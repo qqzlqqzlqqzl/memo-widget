@@ -182,7 +182,7 @@ jobs:
         run: sed -i '/maven\.aliyun\.com/d' settings.gradle.kts
 
       - name: Submit dependency graph
-        uses: gradle/actions/dependency-submission@v4
+        uses: gradle/actions/dependency-submission@v6
 
   android-instrumented:
     if: github.event_name != 'pull_request'
