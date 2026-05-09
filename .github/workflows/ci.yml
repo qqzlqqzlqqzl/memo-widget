@@ -181,8 +181,16 @@ jobs:
       - name: Strip aliyun mirrors for CI
         run: sed -i '/maven\.aliyun\.com/d' settings.gradle.kts
 
+      # Scope the submission to *runtime* configurations only. Without this,
+      # the action snapshots the buildscript classpath too — Gradle plugins'
+      # transitive netty/bouncycastle/jose4j/jdom2/etc. light up Dependabot
+      # with high-severity alerts that never ship in the APK. Filter to the
+      # `*RuntimeClasspath` configurations + the explicit Android variants.
       - name: Submit dependency graph
         uses: gradle/actions/dependency-submission@v6
+        env:
+          DEPENDENCY_GRAPH_INCLUDE_CONFIGURATIONS: ".*RuntimeClasspath"
+          DEPENDENCY_GRAPH_EXCLUDE_PROJECTS: ":buildSrc"
 
   android-instrumented:
     if: github.event_name != 'pull_request'

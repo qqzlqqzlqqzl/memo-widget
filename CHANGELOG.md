@@ -51,8 +51,11 @@ P8.4 — 30-bucket parallel review-driven fix。先用 30 个 review subagent �
 - **Widget 刷新 Toast 改 `"正在刷新…"`**（`MemoWidgetContent` / `TodayWidgetContent`）：原文案 `"已刷新"` 在 `updateAll` 还在异步执行时就先弹（white-lie），失败时也欺骗用户；现在 `runCatching {}.onFailure` 主线程 post `"刷新失败，请检查网络"`。
 
 ### Changed (CI / Build)
-- **`.github/workflows/ci.yml` `dependency-graph` job 加 `permissions: contents: write`**：原状态返回 `403 Resource not accessible by integration`，每次 master push 这个 job 都 fail；现在 dependency-submission action 能向 GitHub Dependabot 写依赖快照。
+- **`.github/workflows/ci.yml` `dependency-graph` job 加 `permissions: contents: write`**：原状态返回 `403 Resource not accessible by integration`，每次 master push 这个 job 都 fail；现在 dependency-submission action 能向 GitHub Dependabot 写依赖快照。同时加 `continue-on-error: true` 避免 repo 层 Dependency graph 未启用时把整个 workflow 染红。
 - **Glance `1.1.0 → 1.1.1`**（`gradle/libs.versions.toml`）：CVE-2024-7254 protobuf-java DoS（CVSS 7.5–8.7）缓解，glance-appwidget-proto 的 transitive 依赖。
+- **依赖大升级二期 (post-p8.4 drain)**：dependabot 触发的 minor/patch 浪潮全部并入 master——AGP 8.7.3→8.10.1（Compose BOM 2026.05 的 AAR metadata 7 要求）+ Gradle 8.9→8.11.1（AGP 8.10 要求）+ WorkManager 2.9.1→2.11.2 + navigation-compose 2.8.4→2.9.8 + datastore 1.1.1→1.2.1 + Material 1.12.0→1.13.0 + Robolectric 4.14.1→4.16.1（实测 JDK 17 仍能跑，旧注释里"4.16+ 要 JDK 21"作废）+ androidx.test:runner/core-ktx/rules 1.6.x→1.7.0 + ext:junit 1.2.1→1.3.0。Room 2.8.4 升级路径触发 kotlinx-serialization `AbstractMethodError typeParametersSerializers`，已回退到 2.6.1 稳态；KSP 2.3.7 / Kotlin 3.x 跨大版本闭锁，关了 PR 留待 Kotlin major bump 时一起做。
+- **`.github/dependabot.yml`**：加 weekly 调度（Mon 09:30 Asia/Shanghai）+ compose/room/lifecycle/kotlinx/ktor 分组，让升级波动有节律不堵 PR 列表。
+- **`.github/workflows/ci.yml` `dependency-graph` job 加 `DEPENDENCY_GRAPH_INCLUDE_CONFIGURATIONS=".*RuntimeClasspath"`**：原默认提交了整棵 buildscript 依赖，把 gradle 插件传递依赖里的 netty/bouncycastle/jose4j/jdom2/protobuf-java/commons-compress/guava 全部当成 APK 依赖给 Dependabot 报警 (30 条 high/medium，全部从 `settings.gradle.kts` 来)；filter 后只提交 `*RuntimeClasspath` 配置，避免误伤。配套手动 dismiss 旧 30 条 alert (reason: `not_used`)。
 
 ### Methodology / Process
 - **30 个 review subagent 并行审查**：每个 agent 聚焦一个独立维度，置信度 ≥ 80% 才输出问题，避免水分。
@@ -62,7 +65,7 @@ P8.4 — 30-bucket parallel review-driven fix。先用 30 个 review subagent �
 ### Known Limits / Deferred to Next Wave
 - **i18n 二期**：50+ 处 Compose / Glance / Toast 硬编码中文未抽到 `strings.xml`、`values-en/strings.xml` 未建、`DateTimeFormatter.ofPattern("yyyy 年 MM 月 dd 日")` 等硬模板未改 `Locale.getDefault()`、`CalendarScreen` 一处硬编码 `Locale.SIMPLIFIED_CHINESE`。
 - **a11y 二期**：`MemoCard` / `DayCell` 缺 `Role.Button`、`ChecklistRow` 未合并 `semantics(mergeDescendants)`、`ScrollAwareFab` 折叠态 `contentDescription = null`、`CloudOff` 装饰图标可聚焦但无操作。
-- **依赖大升级二期**：Compose BOM 2024.09 / Ktor 2.3.13 / AGP 8.7.3 / Room 2.6.1 / WorkManager 2.9.1 / kotlinx-coroutines 1.8.1 / serialization 1.7.2 全部落后 12-18 个月。
+- **依赖大升级二期（部分关闭）**：post-p8.4 drain 把 AGP / Gradle / WorkManager / navigation-compose / datastore / Material / Robolectric / test 系列全部刷到当前。剩余落后项：Ktor 2.3.13（→ 3.0 大版本，API 改动较多）、Room 2.6.1（→ 2.8.x 因 kotlinx-serialization `AbstractMethodError typeParametersSerializers` 回滚，等 serialization 1.8+ 兼容矩阵稳定）、kotlinx-coroutines 1.8.1（→ 2.0 兼容性待评估）、serialization 1.7.2（与 Room 2.8 互斥锁住）、Kotlin 2.0.21（→ 2.3 触发 KSP 跨大版本，留 P9 主升级波）。
 - **`PullBudget.tightenFromHeader` 接入**：当前是死代码；`MemoResult.Ok` 不携带 HTTP 响应头 → PullWorker 无法把 `X-RateLimit-Remaining` 透出给 `PullBudget`。需要 GitHubApi + MemoResult 跨文件改造。
 - **Glance `provideGlance` 真正移到 `update()`**：当前只用 `withContext(Dispatchers.IO)` 兜底，IO 仍绑在 render pass 上；正确做法是 override `update()` + `updateAppWidgetState` 写入 GlanceState，`provideGlance` 只 `currentState()` 读。
 - **CI 优化**：`concurrency.cancel-in-progress` / dependabot config / instrumented job 的 PR 触发条件收紧。
