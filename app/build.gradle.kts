@@ -181,4 +181,14 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.kotlinx.coroutines.test)
+
+    // Compose UI test rule + ui-test-manifest. Lets instrumented tests
+    // exercise actual Compose screens via createAndroidComposeRule and
+    // assertions like onNodeWithText / onNodeWithContentDescription. Pinned
+    // to the same BOM as the production Compose modules so semantic-tree
+    // APIs stay in sync. Without these the project's "BDD" coverage was
+    // limited to widget-internal mechanics only.
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
