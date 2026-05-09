@@ -141,14 +141,25 @@ class AiClient(
     private inline fun <T> runCatchingHttp(block: () -> MemoResult<T>): MemoResult<T> = try {
         block()
     } catch (e: IOException) {
-        MemoResult.Err(ErrorCode.NETWORK, e.message ?: "network error")
+        // Don't surface raw e.message to users: OkHttp/CIO wrap low-level
+        // network failures with technical strings ("Connection refused",
+        // "Software caused connection abort", "Trust anchor for certification
+        // path not found") that confuse non-engineering users. Keep the
+        // friendly Chinese label here; the original cause is still on logcat
+        // for the developer (Ktor logs it before this catch fires).
+        Log.w(TAG, "AI request failed (network)", e)
+        MemoResult.Err(ErrorCode.NETWORK, "网络错误，请重试")
     } catch (e: Throwable) {
         if (e is kotlinx.coroutines.CancellationException) throw e
         val cause = generateSequence<Throwable>(e) { it.cause }.firstOrNull { it is IOException }
         if (cause != null) {
-            MemoResult.Err(ErrorCode.NETWORK, cause.message ?: "network error")
+            Log.w(TAG, "AI request failed (wrapped network)", e)
+            MemoResult.Err(ErrorCode.NETWORK, "网络错误，请重试")
         } else {
-            MemoResult.Err(ErrorCode.UNKNOWN, e::class.simpleName + ": " + (e.message ?: ""))
+            // Avoid exposing Java class names like "NullPointerException" or
+            // "SerializationException" directly in the UI Snackbar.
+            Log.e(TAG, "AI request failed (unexpected)", e)
+            MemoResult.Err(ErrorCode.UNKNOWN, "AI 请求失败，请稍后重试")
         }
     }
 

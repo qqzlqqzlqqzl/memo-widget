@@ -93,6 +93,12 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            // Stub out android.* methods (Log.w/d/e, etc.) to return default
+            // values instead of throwing in JVM unit tests. Without this,
+            // production code that touches `android.util.Log` for diagnostic
+            // breadcrumbs (e.g. AiClient.runCatchingHttp warning on network
+            // failure) blows up the unit test as RuntimeException("not mocked").
+            isReturnDefaultValues = true
         }
     }
 }
