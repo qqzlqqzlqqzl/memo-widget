@@ -1,16 +1,21 @@
 package dev.aria.memo.widget
 
 import android.content.Context
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import dev.aria.memo.data.MemoEntry
 import dev.aria.memo.data.MemoRepository
 import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.local.EventEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Clock
 import java.time.LocalDate
@@ -35,10 +40,34 @@ import java.time.ZoneId
  * `clock` 参数（默认 [Clock.systemDefaultZone]）是注入点 —— 单元测试可以传
  * `Clock.fixed(Instant.parse("2026-04-26T23:59:00Z"), ZoneId.of("Asia/Shanghai"))`
  * 锁定一个跨日边缘的时间点，断言 `LocalDate.now(clock)` 的输出。
+ *
+ * ## Zone 暴露（B17 → B21 契约）
+ *
+ * `clock.zone` 通过 [PreferencesGlanceStateDefinition] 写入 widget 的 DataStore
+ * state（key: [PREF_KEY_ZONE_ID]）。TodayWidgetContent.EventLine 的 zone 消费
+ * 由 **B21** 完成：读 `currentState<Preferences>()[TodayWidget.PREF_KEY_ZONE_ID]`，
+ * fallback `ZoneId.systemDefault()`。
  */
 class TodayWidget(private val clock: Clock = Clock.systemDefaultZone()) : GlanceAppWidget() {
 
+    // Use PreferencesGlanceStateDefinition so we can write zone into widget state
+    // via updateAppWidgetState and B21 can read it with currentState<Preferences>().
+    override val stateDefinition = PreferencesGlanceStateDefinition
+
     override val sizeMode: SizeMode = SizeMode.Single
+
+    companion object {
+        /**
+         * GlanceState Preferences key that carries the clock's ZoneId string
+         * (e.g. "Asia/Shanghai") into the widget's DataStore-backed state.
+         *
+         * **B21 contract**: in TodayWidgetContent.EventLine call
+         *   `currentState<Preferences>()[TodayWidget.PREF_KEY_ZONE_ID]`
+         *   and resolve with `ZoneId.of(...)`, falling back to
+         *   `ZoneId.systemDefault()` when the key is absent.
+         */
+        val PREF_KEY_ZONE_ID = stringPreferencesKey("today_widget_zone_id")
+    }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         ServiceLocator.init(context)
@@ -51,14 +80,25 @@ class TodayWidget(private val clock: Clock = Clock.systemDefaultZone()) : Glance
         val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
         val dayEnd = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 
+        // B17 (zone injection): write clock.zone into GlanceState so TodayWidgetContent
+        // can read it via currentState<Preferences>()[PREF_KEY_ZONE_ID] (B21 consumes).
+        // Done before provideContent so the state is available on the first render.
+        updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
+            prefs.toMutablePreferences().apply { set(PREF_KEY_ZONE_ID, zone.id) }
+        }
+
         // Fixes #299 (Red-3 N3): short-circuit on isConfigured before
         // hitting recentEntries / observeAll / observeBetween. The old
         // path called recentEntries which itself looked up
         // settings.current() and got NOT_CONFIGURED back, then we'd
         // skip the rest — cheaper to read the gate once up front and
         // skip every Room read entirely.
+        //
+        // TODO(P9, mirrors B16/MemoWidget): promote IO entirely out of provideGlance —
+        //  override update(), run settingsStore.current() + all Room reads there,
+        //  write results into GlanceState, and have provideGlance only read currentState().
         val isConfigured = withTimeoutOrNull(1_000) {
-            ServiceLocator.settingsStore.current().isConfigured
+            withContext(Dispatchers.IO) { ServiceLocator.settingsStore.current().isConfigured }
         } ?: false
         if (!isConfigured) {
             provideContent {
@@ -67,6 +107,7 @@ class TodayWidget(private val clock: Clock = Clock.systemDefaultZone()) : Glance
                     date = today,
                     events = emptyList(),
                     memos = emptyList(),
+                    zone = zone,
                 )
             }
             return
@@ -108,6 +149,7 @@ class TodayWidget(private val clock: Clock = Clock.systemDefaultZone()) : Glance
                 date = today,
                 events = events,
                 memos = memos,
+                zone = zone,
             )
         }
     }

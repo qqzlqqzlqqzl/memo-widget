@@ -226,6 +226,17 @@ class SettingsStore(
         // anything against the new repo yet).
         SyncStatusBus.emit(SyncStatus.Idle)
 
+        // Step 2b: clear AI credentials left over from the previous account.
+        // On a shared device the outgoing user's AI API key and provider URL
+        // must not be readable by whoever logs in next. Calling save("","","")
+        // removes the encrypted key and blanks the DataStore fields atomically.
+        // ServiceLocator.aiSettings is always populated by the time any UI can
+        // invoke switchAccount (ServiceLocator.init() completes in
+        // Application.onCreate, before any Activity or Worker runs).
+        runCatching {
+            ServiceLocator.aiSettings.save("", "", "")
+        }
+
         // Step 3: write the new credentials. Same IO discipline as [update].
         val patAfter = pat.trim()
         val branchAfter = branch.trim().ifBlank { "main" }
@@ -247,11 +258,14 @@ class SettingsStore(
 
     // ---- internals --------------------------------------------------------
 
-    private fun migrateLegacyPat(legacy: String) {
-        // Copy legacy plaintext into the secure store. The accompanying
-        // DataStore.remove happens on the next write via [update]; this
-        // side-effect keeps the two stores in sync immediately.
+    private suspend fun migrateLegacyPat(legacy: String) {
+        // Copy legacy plaintext into the secure store, then immediately
+        // remove the plaintext key from DataStore. Previously the removal
+        // was deferred to the next [update] call, but a user who never
+        // triggers another update would leave PAT_LEGACY in plaintext on
+        // disk indefinitely — this makes the erase atomic with the write.
         secure.write(legacy)
+        context.settingsDataStore.edit { it.remove(Keys.PAT_LEGACY) }
     }
 
     /**

@@ -1,6 +1,8 @@
 package dev.aria.memo
 
 import android.app.Application
+import android.os.StrictMode
+import dev.aria.memo.BuildConfig
 import dev.aria.memo.data.PreferencesStore
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.sync.ConfigChangeListener
@@ -11,6 +13,7 @@ import dev.aria.memo.util.CrashLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -20,8 +23,28 @@ import kotlinx.coroutines.launch
  * event reminders.
  */
 class MemoApplication : Application() {
+
+    // Lifted out of onCreate so it can be cancelled in onTerminate.
+    // onTerminate is only called on emulator / Robolectric, but that is exactly
+    // the scenario (multi-onCreate test runs) where the leak matters.
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
+
+        // BDD #1184: intercept main-thread IO in debug builds.
+        // penaltyLog only — no penaltyDeath — so dev environments never crash
+        // unexpectedly from existing violations (e.g. SecurePatStore / DataStore
+        // construction on main thread). Those warnings are tracked as P1 tech-debt.
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder().detectAll().penaltyLog().build()
+            )
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder().detectAll().penaltyLog().build()
+            )
+        }
+
         // Install crash handler FIRST so a crash inside ServiceLocator.init or
         // any subsequent init still leaves a persistent stack trace on disk.
         // Chains to the system default so process death + the OS-level "X
@@ -43,7 +66,6 @@ class MemoApplication : Application() {
         // 会延后几十到几百毫秒生效。对用户体感无影响（pull 本来就 30 分钟周期，
         // push 本来就异步，不保证立即发车）。
         val prefs = PreferencesStore(this)
-        val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         ioScope.launch {
             SyncScheduler.schedulePeriodicPull(this@MemoApplication)
             SyncScheduler.enqueuePush(this@MemoApplication)
@@ -64,5 +86,14 @@ class MemoApplication : Application() {
                 context = this@MemoApplication,
             ).start()
         }
+    }
+
+    override fun onTerminate() {
+        super.onTerminate()
+        // Cancels the SupervisorJob, which stops ConfigChangeListener's infinite
+        // collect loop. Only called on emulator / Robolectric — production process
+        // death terminates the scope naturally — but this is the correct hook for
+        // test-harness cleanup to prevent multi-onCreate leaks.
+        ioScope.cancel()
     }
 }

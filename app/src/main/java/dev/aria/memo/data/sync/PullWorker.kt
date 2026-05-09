@@ -86,6 +86,14 @@ class PullWorker(
         // 最坏情况合计 164 次 API call，登录 PAT 用户 5000/h 虽够但 secondary
         // rate-limit 仍可能被触发。150 上限保证单轮不爆表。
         val budget = PullBudget()
+        // TODO: tighten when GitHubApi exposes rate-limit headers (see B06).
+        // PullBudget.tightenFromHeader(X-RateLimit-Remaining) is dead code
+        // until MemoResult.Ok carries the raw HttpResponse headers. Currently
+        // GitHubApi consumes the HttpResponse internally and only returns the
+        // deserialized body, so PullWorker cannot read X-RateLimit-Remaining
+        // without a GitHubApi refactor. Track in B06: expose headers from
+        // MemoResult.Ok so callers can call budget.tightenFromHeader(header)
+        // after each api.getFile / api.listDir call.
 
         // --- notes ---------------------------------------------------------
         // Fixes #5: when the local cache is empty, list the repo root and pull
@@ -153,6 +161,12 @@ class PullWorker(
                 for (item in remote) {
                     val localByPath = eventDao.getByPath(item.path)
                     if (localByPath?.dirty == true) continue
+                    // (1) Tombstone resurrection defence: local row is marked
+                    // deleted (tombstoned=1) but PushWorker hasn't sent the
+                    // DELETE yet. Remote still has the file → SHA differs →
+                    // we'd upsert tombstoned=false and resurrect the event.
+                    // Skip remote→local overwrite; PushWorker will DELETE it.
+                    if (localByPath?.tombstoned == true) continue
                     if (localByPath != null && localByPath.githubSha == item.sha) continue
                     // Fixes #53 (P6.1): exhausted-check + consume merged to a
                     // single atomic-in-intent call so the check-then-act pair
@@ -246,6 +260,12 @@ class PullWorker(
                 for (item in remote) {
                     val localByPath = singleNoteDao.getByPath(item.path)
                     if (localByPath?.dirty == true) continue
+                    // (1) Tombstone resurrection defence: user deleted this note
+                    // (tombstoned=1, dirty=1) but PushWorker hasn't sent the
+                    // DELETE yet. Remote still has the file → SHA diff triggers
+                    // upsert with tombstoned=false → note resurrects.
+                    // Fix: skip remote→local overwrite; PushWorker owns deletion.
+                    if (localByPath?.tombstoned == true) continue
                     if (localByPath != null && localByPath.githubSha == item.sha) continue
                     // Fixes #53 (P6.1): merged exhausted+consume check.
                     if (!budget.consume()) { anyNetwork = true; break }
@@ -325,6 +345,9 @@ class PullWorker(
         // on the clean-success branch — retry means transient failure
         // happened and the cycle hasn't actually completed.
         return if (anyNetwork) {
+            // (2) Mirror PushWorker behaviour: surface a network-error banner so
+            // the UI shows "网络错误，稍后重试" instead of silently staying Idle.
+            SyncStatusBus.emit(SyncStatus.Error(ErrorCode.NETWORK, "网络错误，稍后重试"))
             Result.retry()
         } else {
             PreferencesStore(applicationContext)

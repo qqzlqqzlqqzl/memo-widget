@@ -111,6 +111,23 @@ open class AiSettingsStore(context: Context? = null) {
         }
     }
 
+    /**
+     * Removes all AI credentials from both stores.
+     *
+     * Prefer this over `save("", "", "")` when switching accounts: DataStore keys
+     * are explicitly [removed][androidx.datastore.preferences.core.MutablePreferences.remove]
+     * (no empty-string residue) and the EncryptedSharedPreferences entry for the
+     * api key is hard-deleted rather than overwritten with an empty value.
+     */
+    open suspend fun clear() {
+        val ctx = appContext ?: return
+        securePrefs?.edit()?.remove(SECURE_KEY)?.apply()
+        ctx.aiSettingsDataStore.edit { prefs ->
+            prefs.remove(Keys.PROVIDER_URL)
+            prefs.remove(Keys.MODEL)
+        }
+    }
+
     private object Keys {
         val PROVIDER_URL = stringPreferencesKey("provider_url")
         val MODEL = stringPreferencesKey("model")

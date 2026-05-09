@@ -30,7 +30,6 @@ class EventAlarmReceiver : BroadcastReceiver() {
         val uid = intent.getStringExtra(EXTRA_UID) ?: return
         val summary = intent.getStringExtra(EXTRA_SUMMARY) ?: return
         val startEpochMs = intent.getLongExtra(EXTRA_START_MS, 0L)
-        postNotification(context, uid, summary, startEpochMs)
 
         val pending = goAsync()
         val appContext = context.applicationContext
@@ -38,8 +37,15 @@ class EventAlarmReceiver : BroadcastReceiver() {
         // reads + AlarmManager IPC are IO-bound, not CPU-bound. Using
         // Dispatchers.IO matches the work; Default produced spurious
         // context switches with no upside.
+        //
+        // postNotification is also inside this block: its NotificationManager.notify
+        // call is a cross-process Binder IPC which, in pathological cases (low memory,
+        // system_server busy), can stall the main thread long enough to trigger an ANR
+        // on the BroadcastReceiver's 10-second deadline. Running it on IO avoids that
+        // risk; the 10-second goAsync budget is more than sufficient for a single IPC.
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                postNotification(appContext, uid, summary, startEpochMs)
                 dev.aria.memo.data.ServiceLocator.init(appContext) // defensive
                 AlarmScheduler.rescheduleForUid(appContext, uid)
                 // Fix-WP (Review-Q): for recurring events the next-occurrence
@@ -69,7 +75,7 @@ class EventAlarmReceiver : BroadcastReceiver() {
         }
         val pi = PendingIntent.getActivity(
             context,
-            uid.hashCode(),
+            stableRequestCode(uid), // matches AlarmScheduler.pendingIntentFor — avoids hashCode collisions
             tapIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

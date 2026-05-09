@@ -1,5 +1,6 @@
 package dev.aria.memo.ui.ai
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -12,12 +13,17 @@ import dev.aria.memo.data.ai.AiContextBuilder
 import dev.aria.memo.data.ai.AiContextMode
 import dev.aria.memo.data.ai.AiMessage
 import dev.aria.memo.data.ai.AiSettingsStore
+import io.ktor.client.plugins.ClientRequestException
+import io.ktor.client.plugins.ServerResponseException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import java.io.IOException
+import java.net.SocketTimeoutException
 
 /**
  * Drives [AiChatScreen]. Holds a rolling in-memory chat transcript — history is
@@ -188,18 +194,54 @@ class AiChatViewModel(
                     }
                 }
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                Log.e(TAG, "send() failed: ${t.javaClass.name}: ${t.message}", t)
                 _state.value = _state.value.copy(
                     // Bug-1 H8 fix (#108): 同样恢复 input + 回退 userTurn。
                     messages = snapshot.messages,
                     input = text,
                     isSending = false,
-                    error = t.message ?: t.javaClass.simpleName,
+                    error = humanMessage(t),
                 )
             }
         }
     }
 
+    /**
+     * Maps a [Throwable] to a user-visible, human-readable Chinese error string.
+     *
+     * The raw exception class / message is NOT exposed here — it is logged to
+     * logcat at ERROR level by the call site so engineers can diagnose without
+     * requiring the user to copy-paste stack traces.
+     *
+     * HTTP status awareness is provided via Ktor's typed exceptions
+     * ([ClientRequestException] for 4xx, [ServerResponseException] for 5xx).
+     * Under the current client config (`expectSuccess = false`) HTTP errors
+     * return as [dev.aria.memo.data.MemoResult.Err] and don't reach this path,
+     * but the mapping is retained for defensive correctness in case that config
+     * changes, and for any callers added in the future.
+     */
+    private fun humanMessage(t: Throwable): String = when {
+        t is SocketTimeoutException || (t is IOException && t.cause is SocketTimeoutException) ->
+            "网络错误，请重试"
+        t is IOException ->
+            "网络错误，请重试"
+        t is ClientRequestException && t.response.status.value == 401 ->
+            "AI 凭据失效，请到设置检查"
+        t is ClientRequestException && t.response.status.value == 403 ->
+            "AI 凭据失效，请到设置检查"
+        t is ClientRequestException && t.response.status.value == 429 ->
+            "请求过于频繁，稍后再试"
+        t is ClientRequestException ->
+            "发送失败，请重试"
+        t is ServerResponseException ->
+            "AI 服务暂时不可用"
+        else ->
+            "发送失败，请重试"
+    }
+
     companion object {
+        private const val TAG = "AiChatViewModel"
         /**
          * Build a factory scoped to a specific [noteUid]. The nav-arg route
          * passes `null` for the tab-level entry and the note's uid for the

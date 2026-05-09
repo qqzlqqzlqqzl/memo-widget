@@ -86,6 +86,7 @@ object SyncScheduler {
     fun enqueuePullNow(context: Context) {
         val request = OneTimeWorkRequestBuilder<PullWorker>()
             .setConstraints(networkConstraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(PULL_NOW_UNIQUE, PULL_NOW_POLICY, request)

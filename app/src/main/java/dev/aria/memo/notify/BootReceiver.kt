@@ -8,7 +8,9 @@ import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.widget.WidgetRefresher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Re-arms every [android.app.AlarmManager] reminder + repaints widgets when
@@ -36,14 +38,26 @@ class BootReceiver : BroadcastReceiver() {
         // PendingIntents (an IPC binder call). Default is for CPU-bound
         // work; using it here just made Room re-context-switch into IO
         // internally with no upside.
-        CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 ServiceLocator.init(appContext)
-                AlarmScheduler.rescheduleAll(appContext)
-                // TIMEZONE_CHANGED also moves "今天" by up to 24h on the
-                // widget headers. refreshAll is debounced + idempotent so
-                // calling it from every handled action is cheap.
-                WidgetRefresher.refreshAll(appContext)
+                // Guarded by withTimeoutOrNull so we never exceed goAsync()'s
+                // 10 s ANR window. 8 s leaves 2 s of headroom for scheduling
+                // overhead and the finally block below.  withTimeoutOrNull
+                // returns null on timeout instead of throwing
+                // TimeoutCancellationException, making the fallthrough explicit
+                // and keeping the catch block for real, unexpected errors only.
+                val completed = withTimeoutOrNull(8_000) {
+                    AlarmScheduler.rescheduleAll(appContext)
+                }
+                if (completed == null) {
+                    Log.w(TAG, "rescheduleAll timed out for action=$action — alarms may be incomplete")
+                } else {
+                    // TIMEZONE_CHANGED also moves "今天" by up to 24h on the
+                    // widget headers. refreshAll is debounced + idempotent so
+                    // calling it from every handled action is cheap.
+                    WidgetRefresher.refreshAll(appContext)
+                }
             } catch (t: Throwable) {
                 // Sec-1 / H1: previously any Throwable (e.g. a corrupt Keystore
                 // throwing KeyStoreException inside ServiceLocator.init, or

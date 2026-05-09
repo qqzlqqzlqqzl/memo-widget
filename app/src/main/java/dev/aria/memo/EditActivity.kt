@@ -2,6 +2,7 @@ package dev.aria.memo
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -56,9 +57,17 @@ class EditActivity : ComponentActivity() {
             // Legacy / new-note flow — keep priming the ViewModel with any
             // supplied path+body so checklist toggles can still persist on the
             // day-file cache until all callers migrate to the single-note flow.
-            val extraPath = intent?.getStringExtra(EXTRA_PATH)
+            val rawPath = intent?.getStringExtra(EXTRA_PATH)
+            val safePath = rawPath?.let { path ->
+                if (isValidNotePath(path)) {
+                    path
+                } else {
+                    Log.w(TAG, "EXTRA_PATH rejected by allowlist: \"$path\" — falling back to null")
+                    null
+                }
+            }
             val extraBody = intent?.getStringExtra(EXTRA_BODY)
-            viewModel.prime(extraPath, extraBody)
+            viewModel.prime(safePath, extraBody)
         }
 
         // Fix-6 (Bug-1 C4): only expose the delete overflow when editing an
@@ -114,7 +123,12 @@ class EditActivity : ComponentActivity() {
         super.onNewIntent(intent)
         val newUid = intent.getStringExtra(EXTRA_NOTE_UID)
         val oldUid = getIntent()?.getStringExtra(EXTRA_NOTE_UID)
-        val newPath = intent.getStringExtra(EXTRA_PATH)
+        // Validate the incoming path before using it for identity comparison
+        // so a malformed path cannot trigger a spurious Activity restart.
+        val newPath = intent.getStringExtra(EXTRA_PATH)?.let { path ->
+            if (isValidNotePath(path)) path
+            else { Log.w(TAG, "onNewIntent: EXTRA_PATH rejected by allowlist: \"$path\""); null }
+        }
         val oldPath = getIntent()?.getStringExtra(EXTRA_PATH)
         // Identity change = uid changed, OR both uids null but path changed.
         val identityChanged = (newUid != oldUid) ||
@@ -127,8 +141,37 @@ class EditActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val TAG = "EditActivity"
+
         const val EXTRA_PATH = "dev.aria.memo.EditActivity.EXTRA_PATH"
         const val EXTRA_BODY = "dev.aria.memo.EditActivity.EXTRA_BODY"
         const val EXTRA_NOTE_UID = "note_uid"
+
+        /** Regex for a bare day-entry filename, e.g. "2024-01-31.md". */
+        private val DAY_ENTRY_REGEX = Regex("""\d{4}-\d{2}-\d{2}\.md""")
+
+        /**
+         * Allowlist guard for repo-relative note paths received via [EXTRA_PATH].
+         *
+         * Accepted forms:
+         *  - starts with "notes/" (Obsidian single-note layout)
+         *  - matches [DAY_ENTRY_REGEX] (bare legacy day-file, e.g. "2024-01-31.md")
+         *
+         * Rejected regardless of the above:
+         *  - contains ".." (directory traversal)
+         *  - contains "\" (Windows-style separator)
+         *  - starts with "/" (absolute path)
+         *  - contains any ASCII control character (0x00–0x1F)
+         */
+        private fun isValidNotePath(path: String): Boolean {
+            // Reject structural attacks first — these are never valid in our schema.
+            if (path.contains("..")) return false
+            if (path.contains('\\')) return false
+            if (path.startsWith("/")) return false
+            if (path.any { it.code in 0..0x1F }) return false
+
+            // Accept only the two known safe shapes.
+            return path.startsWith("notes/") || DAY_ENTRY_REGEX.matches(path)
+        }
     }
 }

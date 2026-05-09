@@ -60,9 +60,14 @@ class ToastingRefreshTodayAction : ActionCallback {
     ) {
         val appCtx = context.applicationContext
         Handler(Looper.getMainLooper()).post {
-            Toast.makeText(appCtx, "已刷新", Toast.LENGTH_SHORT).show()
+            Toast.makeText(appCtx, "正在刷新…", Toast.LENGTH_SHORT).show()
         }
         runCatching { TodayWidget().updateAll(appCtx) }
+            .onFailure {
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(appCtx, "刷新失败，请检查网络", Toast.LENGTH_SHORT).show()
+                }
+            }
     }
 }
 
@@ -88,6 +93,7 @@ fun TodayWidgetContent(
     events: List<EventEntity>,
     memos: List<MemoEntry>,
     modifier: GlanceModifier = GlanceModifier,
+    zone: ZoneId = ZoneId.systemDefault(),
 ) {
     GlanceTheme {
         Scaffold(
@@ -98,7 +104,7 @@ fun TodayWidgetContent(
             when {
                 !isConfigured -> UnconfiguredState()
                 events.isEmpty() && memos.isEmpty() -> EmptyToday()
-                else -> TodayList(events, memos)
+                else -> TodayList(events, memos, zone)
             }
         }
     }
@@ -170,7 +176,7 @@ private fun EmptyToday() {
 }
 
 @Composable
-private fun TodayList(events: List<EventEntity>, memos: List<MemoEntry>) {
+private fun TodayList(events: List<EventEntity>, memos: List<MemoEntry>, zone: ZoneId) {
     val rows = buildList<TodayRow> {
         events.forEach { add(TodayRow.EventRow(it)) }
         memos.forEach { add(TodayRow.MemoRow(it)) }
@@ -194,7 +200,7 @@ private fun TodayList(events: List<EventEntity>, memos: List<MemoEntry>) {
             },
         ) { row ->
             when (row) {
-                is TodayRow.EventRow -> EventLine(row.event)
+                is TodayRow.EventRow -> EventLine(row.event, zone)
                 is TodayRow.MemoRow -> MemoLine(row.memo)
             }
         }
@@ -204,9 +210,8 @@ private fun TodayList(events: List<EventEntity>, memos: List<MemoEntry>) {
 private val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 @Composable
-private fun EventLine(event: EventEntity) {
+private fun EventLine(event: EventEntity, zone: ZoneId) {
     val context = LocalContext.current
-    val zone = ZoneId.systemDefault()
     val start = Instant.ofEpochMilli(event.startEpochMs).atZone(zone)
     val end = Instant.ofEpochMilli(event.endEpochMs).atZone(zone)
     Row(

@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,11 +93,11 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var patVisible by remember { mutableStateOf(false) }
-    var aiKeyVisible by remember { mutableStateOf(false) }
+    var patVisible by rememberSaveable { mutableStateOf(false) }
+    var aiKeyVisible by rememberSaveable { mutableStateOf(false) }
     // Review-W #3: gate the destructive switch-account flow behind a confirm
     // dialog so a misclick can't silently empty the user's pending notes.
-    var showSwitchAccountDialog by remember { mutableStateOf(false) }
+    var showSwitchAccountDialog by rememberSaveable { mutableStateOf(false) }
     // Fixes #24: subscribe to the permission bus so denied state surfaces a guidance card.
     val notificationDenied by NotificationPermissionBus.denied.collectAsStateWithLifecycle()
 
@@ -128,10 +129,10 @@ fun SettingsScreen(
     androidx.compose.runtime.DisposableEffect(oauthViewModel) {
         onDispose { oauthViewModel.reset() }
     }
-    var showClientIdDialog by remember { mutableStateOf(false) }
-    var showOAuthDialog by remember { mutableStateOf(false) }
-    var pendingClientId by remember { mutableStateOf("") }
-    var clientIdDraft by remember { mutableStateOf("") }
+    var showClientIdDialog by rememberSaveable { mutableStateOf(false) }
+    var showOAuthDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingClientId by rememberSaveable { mutableStateOf("") }
+    var clientIdDraft by rememberSaveable { mutableStateOf("") }
     // Sec-1 M2 fix (#99): SettingsScreen 全局 FLAG_SECURE — PAT/apiKey 即使不
     // toggle 明文,设置页本身就含 redacted 但能反推的输入提示 + repo 名 + provider
     // URL 等敏感配置。截图/任务卡片不应保留这些。整页 always-on 取代之前

@@ -12,7 +12,9 @@ import dev.aria.memo.data.MemoResult
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.local.SingleNoteEntity
 import dev.aria.memo.util.MarkdownPreview
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -45,6 +47,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * empty-state decision) you MUST update `decideRows` in that test file in
  * lock-step — the tests can go green while production drifts silently.
  */
+// TODO(P9): Promote IO out of provideGlance entirely — override update(), run all IO
+//  there (settingsStore.current / observeRecent / recentEntriesAcrossDays), write the
+//  result into GlanceState via updateAppWidgetState(), then have provideGlance only read
+//  currentState<WidgetState>(). This eliminates repeated IO on every APPWIDGET_UPDATE
+//  broadcast and fully honours the Glance contract. Tracked for a follow-up PR.
 class MemoWidget : GlanceAppWidget() {
 
     override val sizeMode: SizeMode = SizeMode.Single
@@ -52,10 +59,14 @@ class MemoWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         // Fetch data OUTSIDE provideContent so the render is a pure function of
         // a snapshot — Glance rebuilds the Composable on every update.
+        //
+        // All blocking IO is dispatched to Dispatchers.IO so the main/Glance
+        // coroutine context is never stalled, and withTimeoutOrNull guards
+        // against ANR on slow Keystore / large DB cold paths.
         ServiceLocator.init(context)
         val repository = ServiceLocator.get()
         val singleNoteRepo = ServiceLocator.singleNoteRepo
-        val settings = ServiceLocator.settingsStore.current()
+        val settings = withContext(Dispatchers.IO) { ServiceLocator.settingsStore.current() }
 
         // Fast path: new single-note feed.
         // P8: limit 20（见类 KDoc）。
@@ -65,8 +76,10 @@ class MemoWidget : GlanceAppWidget() {
         // 正则解析，Room 冷路径 + Keystore 冷启叠起来可能贴近 AppWidget 20s
         // ANR 阈值。3s timeout 会让 widget 降级成"空态"而不是 ANR / 黑屏。
         val singleNotes: List<SingleNoteEntity> = withTimeoutOrNull(3_000) {
-            if (!settings.isConfigured) emptyList()
-            else singleNoteRepo.observeRecent(limit = 20).first()
+            withContext(Dispatchers.IO) {
+                if (!settings.isConfigured) emptyList()
+                else singleNoteRepo.observeRecent(limit = 20).first()
+            }
         } ?: emptyList()
 
         val rows: List<MemoWidgetRow>
@@ -78,7 +91,9 @@ class MemoWidget : GlanceAppWidget() {
         } else {
             // Fallback to the legacy cross-day feed. P8: 同步提升到 20。
             val legacy = withTimeoutOrNull(3_000) {
-                repository.recentEntriesAcrossDays(limit = 20)
+                withContext(Dispatchers.IO) {
+                    repository.recentEntriesAcrossDays(limit = 20)
+                }
             }
             when (legacy) {
                 is MemoResult.Ok -> {

@@ -49,13 +49,14 @@ import java.time.format.DateTimeFormatter
  * can't modify [RefreshMemoWidgetAction] (owned by Fix-1), but we *can* swap
  * the button's wiring in this file to a Toast-aware wrapper.
  *
- * [ToastingRefreshMemoAction] is a thin [ActionCallback] that pops "已刷新"
- * on the main thread, then delegates to [MemoWidget].updateAll — the same
- * semantics as [RefreshMemoWidgetAction] minus the no-feedback problem.
+ * [ToastingRefreshMemoAction] is a thin [ActionCallback] that immediately pops
+ * "正在刷新…" on the main thread, then delegates to [MemoWidget].updateAll.
+ * If updateAll throws, a second Handler.post fires "刷新失败，请检查网络".
  * `runCatching` mirrors the failure policy used by the owner-of-record.
  *
- * Why Handler.post(mainLooper): `Toast.makeText(...).show()` must be called
- * from a thread with a Looper; Glance's coroutine dispatcher is not one.
+ * Both Toasts use Handler(Looper.getMainLooper()).post because
+ * `Toast.makeText(...).show()` must run on a Looper thread; Glance's coroutine
+ * dispatcher is not one.
  *
  * Marked as a temporary workaround for P8.1 — once Glance exposes inline
  * loading affordances we can drop the Toast.
@@ -68,13 +69,14 @@ class ToastingRefreshMemoAction : ActionCallback {
     ) {
         val appCtx = context.applicationContext
         Handler(Looper.getMainLooper()).post {
-            // "已刷新" is a white-lie — the updateAll below may still be
-            // in-flight. We accept that: the intent here is feedback-for-tap,
-            // not strict sync confirmation. If updateAll throws, at least the
-            // user knows the button registered.
-            Toast.makeText(appCtx, "已刷新", Toast.LENGTH_SHORT).show()
+            Toast.makeText(appCtx, "正在刷新…", Toast.LENGTH_SHORT).show()
         }
         runCatching { MemoWidget().updateAll(appCtx) }
+            .onFailure {
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(appCtx, "刷新失败，请检查网络", Toast.LENGTH_SHORT).show()
+                }
+            }
     }
 }
 

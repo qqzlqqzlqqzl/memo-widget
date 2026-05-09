@@ -160,6 +160,11 @@ class GitHubApi(private val httpClient: HttpClient) {
     private fun buildUrl(config: AppConfig, path: String): String {
         val encodedPath = path.split('/')
             .filter { it.isNotEmpty() }
+            .onEach { segment ->
+                require(segment != ".." && segment != ".") {
+                    "path segment must not be . or .."
+                }
+            }
             .joinToString("/") { segment ->
                 URLEncoder.encode(segment, Charsets.UTF_8.name()).replace("+", "%20")
             }

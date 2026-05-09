@@ -62,7 +62,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.aria.memo.BuildConfig
 import dev.aria.memo.EditActivity
+import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoEntry
 import dev.aria.memo.data.sync.SyncStatus
 import dev.aria.memo.data.sync.SyncStatusBus
@@ -258,8 +260,16 @@ private fun SyncBanner(status: SyncStatus, onDismiss: () -> Unit) {
                 imageVector = Icons.Filled.SyncProblem,
                 contentDescription = null,
             )
+            val friendlyText = when (err.code) {
+                ErrorCode.UNAUTHORIZED -> "GitHub 认证失败，请检查 PAT"
+                ErrorCode.NETWORK -> "网络错误，稍后会自动重试"
+                ErrorCode.CONFLICT -> "并发冲突，已自动重试"
+                ErrorCode.NOT_FOUND -> "远程文件不存在"
+                ErrorCode.NOT_CONFIGURED -> "尚未配置 GitHub 同步"
+                ErrorCode.UNKNOWN -> "同步失败"
+            } + err.message.takeIf { BuildConfig.DEBUG }?.let { "（$it）" }.orEmpty()
             Text(
-                text = "同步失败：${err.message}",
+                text = friendlyText,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
@@ -283,10 +293,12 @@ private fun NoteListBody(
     innerPadding: PaddingValues,
 ) {
     val context = LocalContext.current
-    val openSingleNote: (String) -> Unit = { uid ->
-        val intent = Intent(context, EditActivity::class.java)
-            .putExtra(EditActivity.EXTRA_NOTE_UID, uid)
-        context.startActivity(intent)
+    val openSingleNote: (String) -> Unit = remember(context) {
+        { uid ->
+            val intent = Intent(context, EditActivity::class.java)
+                .putExtra(EditActivity.EXTRA_NOTE_UID, uid)
+            context.startActivity(intent)
+        }
     }
 
     Column(

@@ -130,8 +130,18 @@ fun EditScreen(
     // Edit mode shows the latest text. We guard with equality to avoid
     // clobbering in-flight edits.
     LaunchedEffect(vmBody) {
-        if (editorValue.text != vmBody) {
+        val current = editorValue
+        val sameContent = current.text == vmBody
+        val atEnd = current.selection.start == current.text.length
+        val isInitial = current.text.isEmpty()
+        if (!sameContent && (atEnd || isInitial)) {
             editorValue = TextFieldValue(vmBody, TextRange(vmBody.length))
+        } else if (!sameContent) {
+            // User is editing mid-text while VM pushed a body update — preserve
+            // cursor intent but clamp to the new text length to avoid an
+            // out-of-bounds crash.
+            val newSel = current.selection.start.coerceAtMost(vmBody.length)
+            editorValue = TextFieldValue(vmBody, TextRange(newSel))
         }
     }
 

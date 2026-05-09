@@ -48,6 +48,15 @@ class PushWorker(
 
     override suspend fun doWork(): Result = try {
         doWorkInner()
+    } catch (t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
+        SyncStatusBus.emit(
+            SyncStatus.Error(
+                ErrorCode.UNKNOWN,
+                "推送失败：${t::class.simpleName ?: "未知错误"}",
+            ),
+        )
+        throw t  // 让 WorkManager 走 failure 路径，外层 retry policy 决定要不要重试
     } finally {
         // Fixes #21: if anything threw or an early return skipped the status
         // emit below, clear the Syncing spinner so the UI doesn't hang.

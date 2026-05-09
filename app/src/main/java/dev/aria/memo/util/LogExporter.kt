@@ -28,6 +28,19 @@ object LogExporter {
 
     private const val PROVIDER_SUFFIX = ".fileprovider"
     private const val MAX_LINES = "2000"
+    private const val CRASH_MAX_BYTES = 512 * 1024L   // 512 KB per crash file
+
+    // Patterns that may contain credentials; order matters (longest/most-specific first).
+    private val REDACT_PATTERNS = listOf(
+        Regex("""Bearer\s+[A-Za-z0-9._\-]+""") to "Bearer ***REDACTED***",
+        Regex("""ghp_[A-Za-z0-9_]{30,}""")     to "ghp_***REDACTED***",
+        Regex("""gho_[A-Za-z0-9_]{30,}""")     to "gho_***REDACTED***",
+        Regex("""sk-[A-Za-z0-9_\-]{20,}""")    to "sk-***REDACTED***",
+        Regex("""(?i)Authorization:\s*\S+""")   to "Authorization: ***REDACTED***",
+    )
+
+    private fun redact(line: String): String =
+        REDACT_PATTERNS.fold(line) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
 
     fun captureToFile(ctx: Context): File {
         val logsDir = File(ctx.cacheDir, "logs").apply { mkdirs() }
@@ -48,7 +61,7 @@ object LogExporter {
                 )
                 BufferedReader(InputStreamReader(proc.inputStream)).useLines { lines ->
                     lines.forEach { line ->
-                        w.append(line)
+                        w.append(redact(line))
                         w.append('\n')
                     }
                 }
@@ -98,10 +111,27 @@ object LogExporter {
                 crashes.forEach { f ->
                     w.append("\n--- ${f.name} ---\n")
                     try {
-                        f.useLines { lines ->
-                            lines.forEach { line ->
-                                w.append(line)
-                                w.append('\n')
+                        val fileLen = f.length()
+                        if (fileLen > CRASH_MAX_BYTES) {
+                            // Read only the first 512 KB to avoid bloating the export file.
+                            f.inputStream().bufferedReader().use { br ->
+                                var bytesRead = 0L
+                                br.lineSequence().forEach { line ->
+                                    val encoded = (line + "\n")
+                                    bytesRead += encoded.length
+                                    if (bytesRead <= CRASH_MAX_BYTES) {
+                                        w.append(redact(line))
+                                        w.append('\n')
+                                    }
+                                }
+                            }
+                            w.append("(truncated: original size $fileLen bytes)\n")
+                        } else {
+                            f.useLines { lines ->
+                                lines.forEach { line ->
+                                    w.append(redact(line))
+                                    w.append('\n')
+                                }
                             }
                         }
                     } catch (e: Exception) {

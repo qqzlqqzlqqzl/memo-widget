@@ -67,6 +67,10 @@
 }
 -keepclassmembers class *_Impl { *; }
 -keep class dev.aria.memo.data.local.** { *; }
+-keep @androidx.room.TypeConverters class * { *; }
+-keepclassmembers class * {
+    @androidx.room.TypeConverter <methods>;
+}
 
 # ===== WorkManager (P4) =====
 # ListenableWorker subclasses are instantiated reflectively by WorkManager.

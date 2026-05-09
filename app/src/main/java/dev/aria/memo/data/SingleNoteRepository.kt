@@ -187,9 +187,20 @@ open class SingleNoteRepository(
      * bypass the WorkManager / Glance side effects.
      */
     open suspend fun restoreFromTombstone(uid: String): MemoResult<Unit> {
-        val existing = dao.get(uid)
+        // Phase 1 (lock-free): fetch filePath so we know which stripe to lock.
+        // We intentionally do NOT act on this snapshot yet — it is only used to
+        // derive the lock key.  A concurrent PushWorker that holds the same lock
+        // could hard-delete the row between here and the lock acquisition, which
+        // is exactly why we re-query inside the lock (Phase 2).
+        val preCheck = dao.get(uid)
             ?: return MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
-        val result = PathLocker.withLock(existing.filePath) {
+        val result = PathLocker.withLock(preCheck.filePath) {
+            // Phase 2 (inside lock): re-query to confirm the row still exists.
+            // If PushWorker executed a hard-delete after our Phase-1 read but
+            // before we acquired the lock, `existing` will be null here and we
+            // surface NOT_FOUND rather than silently writing a zombie row.
+            val existing = dao.get(uid)
+                ?: return@withLock MemoResult.Err(ErrorCode.NOT_FOUND, "note not found: $uid")
             dao.restoreFromTombstone(existing.uid, System.currentTimeMillis())
             SyncScheduler.enqueuePush(appContext)
             MemoResult.Ok(Unit)

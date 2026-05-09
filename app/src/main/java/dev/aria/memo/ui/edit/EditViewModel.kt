@@ -1,9 +1,13 @@
 package dev.aria.memo.ui.edit
 
+import android.os.Bundle
 import androidx.annotation.VisibleForTesting
+import androidx.lifecycle.AbstractSavedStateViewModelFactory
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.savedstate.SavedStateRegistryOwner
 import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoRepository
 import dev.aria.memo.data.MemoResult
@@ -77,8 +81,18 @@ class EditViewModel @VisibleForTesting internal constructor(
         AppConfig(pat = "", owner = "", repo = "")
     },
     private val loadBodyForPath: LoadBodyForPath = { null },
-    private val noteUid: String? = null,
+    // noteUid: explicit parameter for tests / callers that have the uid
+    // in hand. Production path seeds this via SavedStateHandle instead.
+    // The value is merged into savedStateHandle on construction so both
+    // sources converge to the same backing store.
+    noteUid: String? = null,
     private val clock: () -> Long = { System.currentTimeMillis() },
+    // SavedStateHandle: survives process death + Activity recreation.
+    // Tests that don't care about draft persistence pass the default
+    // SavedStateHandle() (empty, in-memory only — no Android framework
+    // needed for JVM unit tests). Production receives a real handle
+    // from AbstractSavedStateViewModelFactory via factoryFor().
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
     /** Production binding — routes to the real repositories. */
@@ -87,6 +101,7 @@ class EditViewModel @VisibleForTesting internal constructor(
         singleNoteRepo: SingleNoteRepository,
         settingsStore: SettingsStore,
         noteUid: String? = null,
+        savedStateHandle: SavedStateHandle = SavedStateHandle(),
     ) : this(
         // appendToday omitted — uses the parameter default, no longer
         // bound to repository.appendToday since save() doesn't call it.
@@ -98,6 +113,7 @@ class EditViewModel @VisibleForTesting internal constructor(
         currentConfig = { settingsStore.current() },
         loadBodyForPath = { path -> repository.getContentForPath(path) },
         noteUid = noteUid,
+        savedStateHandle = savedStateHandle,
     )
 
     // Fixes #321 (Arch-1 #8): the deprecated 3-arg legacy constructor
@@ -107,17 +123,34 @@ class EditViewModel @VisibleForTesting internal constructor(
     // an injection hook for the production constructor's
     // `repository.appendToday` binding; save() never calls it.
 
+    // Resolve noteUid: caller may supply it directly (tests / secondary ctor),
+    // or it may already live in savedStateHandle after a process-death restore.
+    // Prefer the explicit param when non-null; otherwise fall back to the
+    // handle. After resolution, seed the handle so it survives future deaths.
+    private val noteUid: String? = (noteUid ?: savedStateHandle[KEY_NOTE_UID])
+        .also { resolved ->
+            if (resolved != null && savedStateHandle.get<String>(KEY_NOTE_UID) == null) {
+                savedStateHandle[KEY_NOTE_UID] = resolved
+            }
+        }
+
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()
 
     /**
-     * Current note body, owned by the ViewModel so checklist toggles can
-     * rewrite a single line in place without the EditScreen TextField losing
-     * its cursor / undo stack. Editor mode still uses its own saveable state;
-     * [setBody] is the bridge that lets the TextField push edits back here.
+     * Current note body, backed by [SavedStateHandle] so in-progress drafts
+     * survive process death and Activity recreation.
+     *
+     * [SavedStateHandle.getStateFlow] returns a [StateFlow] whose current value
+     * is automatically written into the Bundle that Android OS saves on low-
+     * memory eviction — no explicit onSaveInstanceState needed.
+     *
+     * Editor mode still uses its own Compose saveable state; [setBody] is the
+     * bridge that lets the TextField push edits back here, and every keystroke
+     * synchronously updates the handle so the draft is always current.
      */
-    private val _body = MutableStateFlow("")
-    val body: StateFlow<String> = _body.asStateFlow()
+    private val _body = savedStateHandle.getStateFlow(KEY_DRAFT_BODY, "")
+    val body: StateFlow<String> = _body
 
     /**
      * Repo-relative path of the note currently being edited. Empty until
@@ -146,6 +179,11 @@ class EditViewModel @VisibleForTesting internal constructor(
         // Fixes #44 (P6.1): only seed _body when it's still empty. If the user
         // managed to start typing before the async load returned, their input
         // won out — we must not clobber it with the just-loaded saved copy.
+        //
+        // Process-death note: after a process-death restore, savedStateHandle
+        // already carries the last draft in KEY_DRAFT_BODY. We check emptiness
+        // via _body.value (which reads from the handle) so a restored draft is
+        // treated as "already seeded" and the DB body is not clobbered.
         if (noteUid != null) {
             viewModelScope.launch {
                 // Bug-1 M14 fix: 包 try/catch 防 loadSingleNote crash 拖垮 ViewModel。
@@ -157,7 +195,7 @@ class EditViewModel @VisibleForTesting internal constructor(
                 if (entity != null) {
                     _path.value = entity.filePath
                     if (_body.value.isEmpty()) {
-                        _body.value = entity.body
+                        savedStateHandle[KEY_DRAFT_BODY] = entity.body
                     }
                 }
             }
@@ -172,7 +210,7 @@ class EditViewModel @VisibleForTesting internal constructor(
     fun loadFor(path: String, initialBody: String) {
         if (_path.value == path && _body.value == initialBody) return
         _path.value = path
-        _body.value = initialBody
+        savedStateHandle[KEY_DRAFT_BODY] = initialBody
     }
 
     /**
@@ -202,9 +240,10 @@ class EditViewModel @VisibleForTesting internal constructor(
         }
     }
 
-    /** Two-way binding for the TextField in edit mode. */
+    /** Two-way binding for the TextField in edit mode. Persists the draft into
+     * [SavedStateHandle] on every keystroke so process death cannot lose work. */
     fun setBody(body: String) {
-        _body.value = body
+        savedStateHandle[KEY_DRAFT_BODY] = body
     }
 
     /**
@@ -250,7 +289,7 @@ class EditViewModel @VisibleForTesting internal constructor(
                     // Reflect the persisted body back so subsequent edits
                     // start from the latest view — matches what the single-
                     // note repo wrote (update()) or what create() produced.
-                    _body.value = trimmed
+                    savedStateHandle[KEY_DRAFT_BODY] = trimmed
                     SaveState.Success
                 }
                 is MemoResult.Err -> SaveState.Error(res.code, humanMessage(res.code, res.message))
@@ -288,7 +327,7 @@ class EditViewModel @VisibleForTesting internal constructor(
         val text = match.groupValues[3]
         val mark = if (newChecked) "x" else " "
         lines[lineIndex] = "$indent- [$mark] $text"
-        _body.value = lines.joinToString("\n")
+        savedStateHandle[KEY_DRAFT_BODY] = lines.joinToString("\n")
 
         viewModelScope.launch {
             when (val res = toggleTodoLine(currentPath, lineIndex, rawLine, newChecked)) {
@@ -299,7 +338,7 @@ class EditViewModel @VisibleForTesting internal constructor(
                         // Fixes #323 (Arch-1 #7): injected loader, no
                         // direct ServiceLocator hit.
                         val latest = loadBodyForPath(currentPath).orEmpty()
-                        _body.value = latest
+                        savedStateHandle[KEY_DRAFT_BODY] = latest
                         _state.value = SaveState.Error(
                             ErrorCode.CONFLICT,
                             "内容已更新，已重置视图",
@@ -359,17 +398,99 @@ class EditViewModel @VisibleForTesting internal constructor(
         internal const val DUPLICATE_SAVE_WINDOW_MS: Long = 2_000L
 
         /**
+         * SavedStateHandle key for the in-progress draft body.
+         * Survives process death; restored automatically by the OS on
+         * Activity recreation before the ViewModel is constructed.
+         */
+        internal const val KEY_DRAFT_BODY = "draft_body"
+
+        /**
+         * SavedStateHandle key for the note UID. The factory seeds this
+         * from the Intent extra before creating the ViewModel so that
+         * after process death the UID is available from the handle alone
+         * (no Intent extra needed for re-creation).
+         */
+        internal const val KEY_NOTE_UID = "note_uid"
+
+        /**
          * Default factory — creates a fresh-note EditViewModel (new-note mode).
          * Use [factoryFor] when the Activity was launched to edit an existing
          * single-note (carries [EditActivity.EXTRA_NOTE_UID]).
+         *
+         * NOTE: [Factory] cannot carry a [SavedStateRegistryOwner]; use
+         * [factoryFor] from the Activity (or [by viewModels]) so the real
+         * OS-backed [SavedStateHandle] is wired in.
          */
         val Factory: ViewModelProvider.Factory = factoryFor(null)
 
         /**
-         * Build a ViewModelProvider.Factory that scopes the ViewModel to a
-         * specific [noteUid] (nullable). When uid is null the VM operates in
-         * new-note mode (save → create). When non-null the VM loads the
-         * existing single-note on init and save → update.
+         * Build a [ViewModelProvider.Factory] that:
+         *  1. Creates an OS-backed [SavedStateHandle] (via
+         *     [AbstractSavedStateViewModelFactory]) so drafts survive process death.
+         *  2. Seeds [KEY_NOTE_UID] into the handle's default args Bundle so
+         *     after a process-death restore the UID is recovered from the handle
+         *     even if the Intent is stale.
+         *
+         * [noteUid] is nullable:
+         *  - null → new-note mode (save → createSingleNote).
+         *  - non-null → edit mode (init loads existing body; save → updateSingleNote).
+         *
+         * **Caller contract (EditActivity)**:
+         *
+         * ```kotlin
+         * // EditActivity.kt — inside the class, e.g. as a property delegate:
+         * private val viewModel: EditViewModel by viewModels {
+         *     EditViewModel.factoryFor(
+         *         owner = this,                                   // ComponentActivity
+         *         noteUid = intent?.getStringExtra(EXTRA_NOTE_UID),
+         *     )
+         * }
+         * ```
+         *
+         * The [owner] parameter is a [SavedStateRegistryOwner] — any
+         * [ComponentActivity] or [Fragment] qualifies. Passing `this` from an
+         * Activity is always correct.
+         *
+         * The factory seeds [noteUid] into the handle's *default args* Bundle
+         * via the [AbstractSavedStateViewModelFactory] constructor.  On first
+         * creation the handle reads from that Bundle; after a process-death
+         * restore the OS-saved state takes precedence (the UID was written back
+         * on the previous run by [EditViewModel]'s init block).
+         */
+        fun factoryFor(
+            owner: SavedStateRegistryOwner,
+            noteUid: String?,
+        ): ViewModelProvider.Factory {
+            val defaultArgs = noteUid?.let { uid ->
+                Bundle().apply { putString(KEY_NOTE_UID, uid) }
+            }
+            return object : AbstractSavedStateViewModelFactory(owner, defaultArgs) {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(
+                    key: String,
+                    modelClass: Class<T>,
+                    handle: SavedStateHandle,
+                ): T {
+                    require(modelClass.isAssignableFrom(EditViewModel::class.java)) {
+                        "Unknown ViewModel class: $modelClass"
+                    }
+                    return EditViewModel(
+                        repository = ServiceLocator.repository,
+                        singleNoteRepo = ServiceLocator.singleNoteRepo,
+                        settingsStore = ServiceLocator.settingsStore,
+                        noteUid = noteUid,
+                        savedStateHandle = handle,
+                    ) as T
+                }
+            }
+        }
+
+        /**
+         * Overload kept for binary-compatibility call sites that do not yet
+         * supply a [SavedStateRegistryOwner] (e.g. tests or legacy call sites).
+         * Uses a plain [ViewModelProvider.Factory] with a default (empty,
+         * in-memory) [SavedStateHandle]; process-death persistence is **not**
+         * active for this overload.
          */
         fun factoryFor(noteUid: String?): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
@@ -383,6 +504,11 @@ class EditViewModel @VisibleForTesting internal constructor(
                         singleNoteRepo = ServiceLocator.singleNoteRepo,
                         settingsStore = ServiceLocator.settingsStore,
                         noteUid = noteUid,
+                        savedStateHandle = SavedStateHandle(
+                            buildMap {
+                                if (noteUid != null) put(KEY_NOTE_UID, noteUid)
+                            }
+                        ),
                     ) as T
                 }
             }

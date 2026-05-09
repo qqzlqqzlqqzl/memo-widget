@@ -23,10 +23,26 @@ data class AppConfig(
     val isConfigured: Boolean
         get() = pat.isNotBlank() && owner.isNotBlank() && repo.isNotBlank()
 
-    fun filePathFor(date: LocalDate): String = pathTemplate
-        .replace("{yyyy}", date.year.toString())
-        .replace("{MM}", date.monthValue.toString().padStart(2, '0'))
-        .replace("{dd}", date.dayOfMonth.toString().padStart(2, '0'))
+    fun filePathFor(date: LocalDate): String {
+        val result = pathTemplate
+            .replace("{yyyy}", date.year.toString())
+            .replace("{MM}", date.monthValue.toString().padStart(2, '0'))
+            .replace("{dd}", date.dayOfMonth.toString().padStart(2, '0'))
+        // Sec-2: reject path-traversal and other unsafe patterns so a malicious
+        // pathTemplate cannot escape the repository root via the GitHub API.
+        val segments = result.split('/')
+        if (segments.any { it == ".." }) {
+            throw IllegalArgumentException("invalid path template result: $result")
+        }
+        if (result.contains("//") ||
+            result.contains('\\') ||
+            result.startsWith('/') ||
+            result.any { it.code < 0x20 }
+        ) {
+            throw IllegalArgumentException("invalid path template result: $result")
+        }
+        return result
+    }
 
     /**
      * Security (Sec-1 / M1): the default [data class] `toString()` would include
