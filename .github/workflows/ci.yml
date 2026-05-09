@@ -152,9 +152,15 @@ jobs:
     timeout-minutes: 10
     # The dependency-submission action POSTs to GitHub's dependency graph API.
     # Without `contents: write` the call returns 403 "Resource not accessible
-    # by integration" — every push to master would mark this job as failed.
+    # by integration".
     permissions:
       contents: write
+    # `continue-on-error: true` so a missing repo-level "Dependency graph"
+    # toggle (Settings → Code security → Dependency graph) doesn't paint
+    # the whole CI workflow red. The submit step itself still records a
+    # failure visible in the UI; once the owner enables the feature this
+    # job will go fully green and surface dependency snapshots to Dependabot.
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
