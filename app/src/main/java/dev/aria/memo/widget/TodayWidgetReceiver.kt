@@ -1,34 +1,14 @@
 package dev.aria.memo.widget
 
-import android.content.Context
 import androidx.glance.appwidget.GlanceAppWidget
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import androidx.glance.appwidget.state.deleteAppWidgetState
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
-/** Binds [TodayWidget] to the launcher. See xml/today_widget_info.xml. */
+/**
+ * Binds [TodayWidget] to the launcher. See xml/today_widget_info.xml.
+ *
+ * State cleanup on removal is handled by the Glance-provided
+ * [GlanceAppWidgetReceiver.onDeleted] default — no override required.
+ */
 class TodayWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TodayWidget()
-
-    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
-        super.onDeleted(context, appWidgetIds)
-        val pending = goAsync()
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            try {
-                val mgr = GlanceAppWidgetManager(context)
-                appWidgetIds.forEach { id ->
-                    runCatching {
-                        val glanceId = mgr.getGlanceIdBy(id)
-                        deleteAppWidgetState(context, glanceAppWidget.stateDefinition, glanceId)
-                    }
-                }
-            } finally {
-                pending.finish()
-            }
-        }
-    }
 }
