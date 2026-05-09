@@ -77,6 +77,7 @@ import dev.aria.memo.ui.theme.MemoThemeColors
 import dev.aria.memo.util.CrashLogger
 import dev.aria.memo.util.LogExporter
 import dev.aria.memo.util.SyncStatusFormatter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -328,6 +329,7 @@ fun SettingsScreen(
                     } catch (e: ActivityNotFoundException) {
                         snackbarHostState.showSnackbar("没找到能接收文件的应用")
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         snackbarHostState.showSnackbar(
                             "导出日志失败：${e.message ?: e.javaClass.simpleName}"
                         )

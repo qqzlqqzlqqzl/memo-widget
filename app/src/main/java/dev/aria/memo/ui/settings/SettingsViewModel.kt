@@ -14,6 +14,7 @@ import dev.aria.memo.data.ai.AiClient
 import dev.aria.memo.data.ai.AiSettingsStore
 import dev.aria.memo.data.sync.SyncStatus
 import dev.aria.memo.data.sync.SyncStatusBus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -243,6 +244,7 @@ class SettingsViewModel(
                     lastSavedAt = System.currentTimeMillis(),
                 )
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 _state.value = _state.value.copy(
                     isSaving = false,
                     errorMessage = "保存失败：${t.message ?: "未知错误"}",
@@ -282,6 +284,7 @@ class SettingsViewModel(
                     testConnection()
                 }
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 _state.value = _state.value.copy(
                     isSwitchingAccount = false,
                     errorMessage = "切换账号失败：${t.message ?: "未知错误"}",
@@ -334,6 +337,7 @@ class SettingsViewModel(
                     lastSavedAt = System.currentTimeMillis(),
                 )
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 _state.value = _state.value.copy(
                     isSavingAi = false,
                     errorMessage = "保存 AI 配置失败：${t.message ?: "未知错误"}",

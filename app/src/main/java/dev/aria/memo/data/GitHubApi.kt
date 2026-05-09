@@ -13,6 +13,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
 import java.io.IOException
 import java.net.URLEncoder
@@ -189,7 +190,8 @@ class GitHubApi(private val httpClient: HttpClient) {
 
     private suspend fun safeBody(response: HttpResponse): String = try {
         response.bodyAsText().take(200)
-    } catch (_: Throwable) {
+    } catch (e: Throwable) {
+        if (e is CancellationException) throw e
         "<no body>"
     }
 
@@ -198,6 +200,7 @@ class GitHubApi(private val httpClient: HttpClient) {
     } catch (e: IOException) {
         MemoResult.Err(ErrorCode.NETWORK, e.message ?: "network error")
     } catch (e: Throwable) {
+        if (e is CancellationException) throw e
         val cause = generateSequence<Throwable>(e) { it.cause }.firstOrNull { it is IOException }
         if (cause != null) {
             MemoResult.Err(ErrorCode.NETWORK, cause.message ?: "network error")
