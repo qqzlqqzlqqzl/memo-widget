@@ -31,7 +31,7 @@ startup = "1.2.0"
 # - Supports up to SDK 35 framework via @Config(sdk = [N]); we pin tests to 33
 #   for Glance 1.1.0 compatibility (RemoteViews shadow stable on 33).
 # - androidx-test-core gives ApplicationProvider in JVM unit-test source set.
-robolectric = "4.14.1"
+robolectric = "4.16.1"
 androidx-test-core = "1.7.0"
 # Fix-W3 / Fix-WidgetBdd: emulator instrumented test deps (androidTest source set)
 androidx-test-ext-junit = "1.3.0"
