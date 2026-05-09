@@ -37,7 +37,11 @@ import androidx.compose.runtime.getValue
 class EditActivity : ComponentActivity() {
 
     private val viewModel: EditViewModel by viewModels {
-        EditViewModel.factoryFor(intent?.getStringExtra(EXTRA_NOTE_UID))
+        // Use the SavedStateRegistryOwner-aware factory so the OS-backed
+        // SavedStateHandle persists draft body + noteUid through process
+        // death (B27 / issue: process death草稿丢失). The 1-arg overload
+        // only survives configuration changes, not process death.
+        EditViewModel.factoryFor(this, intent?.getStringExtra(EXTRA_NOTE_UID))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

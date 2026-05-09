@@ -8,6 +8,67 @@
 
 ---
 
+## [v0.12.22-p8.4] - 2026-05-09
+
+P8.4 — 30-bucket parallel review-driven fix。先用 30 个 review subagent 对整库做了 30 个独立维度的并行审查（安全 / Manifest 暴露面 / OAuth / AI 客户端 / Path traversal / 网络配置 / R8 ProGuard / Glance 生命周期 / AlarmManager / WorkManager / Receiver / Compose 状态 / Room 迁移 / 备份 / 数据一致性 / Sync 冲突 / FrontMatter / Pin/Tag/Calendar / Compose 性能 / 主题 / a11y / i18n / 错误提示 / 测试质量 / 依赖 CVE / CI / Crash / 启动 / 文档 / BDD），然后用 30 个 fix subagent 在独立 git worktree 并行修改互不重叠的文件，最后合并到 master 并跑完 unit + R8 release + lint + assembleDebug + androidTest 编译 + emulator BDD instrumented 一整套测试。
+
+### Added
+- **`res/xml/network_security_config.xml`**：Android 9+ 默认禁止明文 HTTP（防 PAT 在内网 MITM 泄漏）；仅对 `localhost` / `127.0.0.1` / `::1` 三个 loopback host 放行 cleartext，让本机 Ollama 仍可用。Manifest `<application>` 加 `android:networkSecurityConfig="@xml/network_security_config"`。
+- **`notify/NotifyUtils.kt`**：把 AlarmScheduler 的 `stableRequestCode(uid)` (FNV-1a 32bit) 提取到包级 `internal fun`，让 `EventAlarmReceiver` 的通知 PendingIntent requestCode 与 AlarmScheduler 一致，消除两个不同 uid hashCode 碰撞时 PendingIntent 错位（用户点错通知打开错笔记）的隐患。
+- **OAuth URL-encode 回归测试** (`GitHubOAuthClientTest::requestDeviceCode url-encodes special characters in clientId`)：用 MockEngine 捕获 raw form body，断言 `&` `=` `+` ` ` `%` 等危险字符被 URLEncoder 正确 escape，关闭 issue [#116](https://github.com/qqzlqqzlqqzl/memo-widget/issues/116)。
+- **`StrictMode` debug 启用** (`MemoApplication.onCreate`)：penaltyLog only，BDD #1184 要求的主线程 IO 探测；不 penaltyDeath 避免开发期意外崩。
+- **`MemoApplication.ioScope` 提为成员属性** + `onTerminate { ioScope.cancel() }`，避免 Robolectric 多次 onCreate 时 collector 泄漏。
+
+### Changed (Security)
+- **删除 `USE_EXACT_ALARM`**：与 `SCHEDULE_EXACT_ALARM` 同时声明会被 Google Play 政策拒审（备忘录非日历类 app 不该持有 USE_EXACT_ALARM 受限权限），保留可被用户撤销的 SCHEDULE_EXACT_ALARM 走现有的 `setExactOrInexact` 降级路径。
+- **`BootReceiver` `exported=false`** 并删除虚假 `android:permission`：四个系统 action（BOOT_COMPLETED / MY_PACKAGE_REPLACED / TIMEZONE_CHANGED / SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED）都由系统进程发送，protected broadcast 不受 exported 影响仍能投递；同时消除 attempt 假冒 BootReceiver 的攻击面。
+- **`EditActivity` `EXTRA_PATH` 白名单校验**：必须 `notes/` 前缀或 `\d{4}-\d{2}-\d{2}\.md` 日条目格式；含 `..` / `\\` / 绝对前导 `/` / 控制字符即视为非法，记录 `Log.w` 并降级为 null。
+- **`AppConfig.filePathFor` 拒绝 path traversal**：用户填入的 `pathTemplate` 替换占位符后再校验，含 `..` 段 / `//` / `\\` / 控制字符 / 绝对前导 `/` 即抛 `IllegalArgumentException`，下游 `runCatchingHttp` 转 `MemoResult.Err`。
+- **`GitHubApi.buildUrl` 拒绝 `..` / `.` segment**：双重防御，即使前置校验绕过也无法构造出会被 GitHub 服务端 normalize 到仓库内任意路径的 URL。
+- **`AiClient` URL 严格化**：用 `java.net.URI` 解析（不再手撕字符串），host 严格相等比较 loopback 白名单；拒绝 RFC1918 私网（10/8、172.16/12、192.168/16、169.254/16 link-local）+ IPv6 ULA/link-local 上的 `http://`（防内网 SSRF + PAT 通过明文泄漏）；拒绝 URL 含 userInfo（`@` 注入绕过 host 检查）。
+- **`SettingsStore.migrateLegacyPat` 立即清明文**：迁移到 `SecurePatStore` 后立刻 `settingsDataStore.edit { remove(PAT_LEGACY) }`，不依赖下次 `update()` 触发的懒删（用户迁移后从不再点设置则永不触发）。
+- **`SettingsStore.switchAccount` 清 AI 凭据**：通过 `ServiceLocator.aiSettings.save("","","")` 清空 provider URL / API key / model，避免共享设备时旧账号 AI key 泄给新用户。
+- **`AiSettingsStore.clear()`**：新增方法，硬删 EncryptedSharedPreferences 的 `apiKey` 条目 + DataStore 的 `provider_url` / `model` 键。
+- **`LogExporter` token redact**：写每行前用 regex 过滤 `Bearer xxx` / `ghp_*` / `gho_*` / `Authorization: ...` / `sk-*` AI key 前缀，避免用户分享日志给开发者排查时泄漏凭据；crash 文件单文件 512KB 上限，超出截断 + 标 `(truncated)`。
+
+### Changed (Correctness)
+- **`proguard-rules.pro` 加 Room TypeConverter keep**：`-keep @androidx.room.TypeConverters class * { *; }` + `-keepclassmembers class * { @androidx.room.TypeConverter <methods>; }`。原规则只覆盖 `_Impl` / `@Entity`，没 keep `Converters.kt` 类与方法名，R8 release 会改名导致 `LocalDate` / `LocalTime` 字段反射查找失败 → `ColumnTypeAdaptException`。
+- **Glance widget `provideGlance` IO 切到 IO dispatcher**（`MemoWidget` / `TodayWidget`）：`settingsStore.current()` / `singleNoteRepo.observeRecent.first()` / `repository.recentEntriesAcrossDays` 全部 `withContext(Dispatchers.IO)`，保留 `withTimeoutOrNull` 兜底；遗留 TODO(P9) 标记下一步把 IO 真正提到 `update()` override + `GlanceState` 写入。
+- **`TodayWidget` zone 注入贯通到 `EventLine`**：之前 `TodayWidgetContent.EventLine` 内部硬编码 `ZoneId.systemDefault()`，与 `TodayWidget` 注入的 `clock.zone` 不一致；现在 `TodayWidget` 把 `zone.id` 写入 `PreferencesGlanceStateDefinition`（`PREF_KEY_ZONE_ID`）+ `TodayWidgetContent(zone)` 函数参数双链路，`EventLine` 用 `zone` 做 epoch→本地时间换算。
+- **`DateChangedReceiver` 改 `goAsync()` + IO 协程做 `ServiceLocator.init`**：冷进程启动时 init 包含 Room build + HttpClient 构造可能耗时数百 ms，主线程同步会触发 ANR；`refreshAll` 是 SharedFlow tryEmit 留在主线程让 testScheduler 可观察。`goAsync()` 在 Robolectric 下 null-safe。
+- **`BootReceiver.rescheduleAll` 加 `withTimeoutOrNull(8_000)`**：goAsync 的 10s ANR 窗口预算保护，超时仍 finally pending.finish()。
+- **`EventAlarmReceiver.postNotification` 移入 goAsync 协程**：避免主线程跨进程 NotificationManager.notify Binder IPC 占满 onReceive 的 10s 主线程预算。
+- **`SingleNoteRepository.restoreFromTombstone` 加 `PathLocker.withLock` + 锁内复查**：消除「PushWorker 持锁执行 DELETE 的同时 restore 并发写 tombstoned=0 → PushWorker.hardDelete 清掉刚恢复的行」TOCTOU 竞态。
+- **`PullWorker` tombstone 复活防御**：events / single_notes 段 upsert 前加 `if (localByPath?.tombstoned == true) continue`，避免「用户已删但 PushWorker DELETE 还没发出，PullWorker 拉到 remote 仍存在该文件，upsert tombstoned=false 复活笔记」典型 sync 雷。
+- **`PullWorker` network error retry 前 emit `SyncStatus.Error(NETWORK)`**：与 PushWorker 行为对齐，UI 现在能看到「网络错误，稍后重试」。
+- **`PushWorker` 异常 emit Status 后再 rethrow**：避免 doWorkInner 抛非 Cancellation 异常被 WorkManager 静默归 failure 而 UI 不知情。
+- **`SyncScheduler.enqueuePullNow` 加 `setBackoffCriteria(EXPONENTIAL, 30s)`**：之前缺 backoff 走默认 LINEAR 30s，网络抖动时高频重试加速消耗 GitHub rate limit；与 PushWorker 对齐。
+- **`EditViewModel` 接 `SavedStateHandle`** 并提供 2-arg `factoryFor(owner: SavedStateRegistryOwner, noteUid: String?)`；`EditActivity` 切到该 factory，让 `_body` / `noteUid` 跨 process death 持久化（之前是纯内存 MutableStateFlow，系统 kill 后用户回到 EditActivity 草稿丢失）。
+- **`EditScreen` LaunchedEffect 不再强制把 selection 重置到末尾**：原行为 checklist toggle 时打断用户中间光标位置；现在仅在「内容真变了 + (已在末尾 OR 初始空)」才重置，否则 clamp 到不超过新长度的原位置。
+- **`SettingsScreen` 7 个 dialog/draft state 改 `rememberSaveable`**：`patVisible` / `aiKeyVisible` / `showSwitchAccountDialog` / `showClientIdDialog` / `showOAuthDialog` / `pendingClientId` / `clientIdDraft`，旋转后不再丢；尤其 `showOAuthDialog` 影响 device-flow 等待期旋转手机时不丢对话框。
+- **`NoteListScreen` SyncBanner 按 `ErrorCode` 映射友好文案**：`UNAUTHORIZED→"GitHub 认证失败，请检查 PAT"` / `NETWORK→"网络错误，稍后会自动重试"` / `CONFLICT→"并发冲突，已自动重试"` / `NOT_FOUND→"远程文件不存在"` / `NOT_CONFIGURED→"尚未配置 GitHub 同步"` / `UNKNOWN→"同步失败"`；原始 `err.message` 仅 BuildConfig.DEBUG 拼在括号内供排查（避免 GitHub raw JSON 片段直接给最终用户看）。
+- **`AiChatViewModel` 错误兜底**：catch 用 `humanMessage(t)` 映射网络/超时/401-403/429/5xx/CancellationException 不同类型，避免把 `t.javaClass.simpleName`（如 `NullPointerException`）当 Snackbar 文字给用户看；原始 message 仅 `Log.e` 到 logcat 供排查。
+- **Widget 刷新 Toast 改 `"正在刷新…"`**（`MemoWidgetContent` / `TodayWidgetContent`）：原文案 `"已刷新"` 在 `updateAll` 还在异步执行时就先弹（white-lie），失败时也欺骗用户；现在 `runCatching {}.onFailure` 主线程 post `"刷新失败，请检查网络"`。
+
+### Changed (CI / Build)
+- **`.github/workflows/ci.yml` `dependency-graph` job 加 `permissions: contents: write`**：原状态返回 `403 Resource not accessible by integration`，每次 master push 这个 job 都 fail；现在 dependency-submission action 能向 GitHub Dependabot 写依赖快照。
+- **Glance `1.1.0 → 1.1.1`**（`gradle/libs.versions.toml`）：CVE-2024-7254 protobuf-java DoS（CVSS 7.5–8.7）缓解，glance-appwidget-proto 的 transitive 依赖。
+
+### Methodology / Process
+- **30 个 review subagent 并行审查**：每个 agent 聚焦一个独立维度，置信度 ≥ 80% 才输出问题，避免水分。
+- **30 个 fix subagent 在独立 worktree 并行修复**：30 桶按文件归属切分，零文件重叠，git apply 时零冲突；3 处 B17/B21 zone wiring + B18/B19 onDeleted（Glance 默认已自带 cleanup，spurious override 还原）+ B24 refreshAll 测试可观察性 在合并阶段手动协调修复。
+- **6 路并行 test 验证**：`testDebugUnitTest`（3223 全绿）+ `minifyReleaseWithR8`（0 missing-class）+ `lintDebug`（0 ERROR）+ `assembleDebug`（24.8MB APK）+ `compileDebugAndroidTestKotlin`（编译过）+ CI emulator BDD instrumented（9 scenario 全绿）。
+
+### Known Limits / Deferred to Next Wave
+- **i18n 二期**：50+ 处 Compose / Glance / Toast 硬编码中文未抽到 `strings.xml`、`values-en/strings.xml` 未建、`DateTimeFormatter.ofPattern("yyyy 年 MM 月 dd 日")` 等硬模板未改 `Locale.getDefault()`、`CalendarScreen` 一处硬编码 `Locale.SIMPLIFIED_CHINESE`。
+- **a11y 二期**：`MemoCard` / `DayCell` 缺 `Role.Button`、`ChecklistRow` 未合并 `semantics(mergeDescendants)`、`ScrollAwareFab` 折叠态 `contentDescription = null`、`CloudOff` 装饰图标可聚焦但无操作。
+- **依赖大升级二期**：Compose BOM 2024.09 / Ktor 2.3.13 / AGP 8.7.3 / Room 2.6.1 / WorkManager 2.9.1 / kotlinx-coroutines 1.8.1 / serialization 1.7.2 全部落后 12-18 个月。
+- **`PullBudget.tightenFromHeader` 接入**：当前是死代码；`MemoResult.Ok` 不携带 HTTP 响应头 → PullWorker 无法把 `X-RateLimit-Remaining` 透出给 `PullBudget`。需要 GitHubApi + MemoResult 跨文件改造。
+- **Glance `provideGlance` 真正移到 `update()`**：当前只用 `withContext(Dispatchers.IO)` 兜底，IO 仍绑在 render pass 上；正确做法是 override `update()` + `updateAppWidgetState` 写入 GlanceState，`provideGlance` 只 `currentState()` 读。
+- **CI 优化**：`concurrency.cancel-in-progress` / dependabot config / instrumented job 的 PR 触发条件收紧。
+
+---
+
 ## [v0.12.18-p8 → v0.12.21-p8] - 2026-04-29
 
 R8 install-failure 修复浪潮 + 体验补强。从用户反馈「6M 的 release APK 装不上、25M 的旧版能装」开始，定位到 R8 把 Glance widget reflectively-instantiated 的子类剥光导致 PackageManager 拒绝合并 manifest receivers，连带补齐 release 签名链与几项「方便用户帮我们排查 bug」的诊断能力。

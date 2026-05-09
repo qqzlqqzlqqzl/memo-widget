@@ -152,11 +152,11 @@ _待补（Agent 6 review 产出后填入）_
 | Release 来源分支 | `feature/p3-polish`（tag 从这里打，**不是** `master`） |
 | 当前分支 | `feature/p3-polish` |
 | HEAD SHA | 见 `git rev-parse HEAD`（P8 Widget 重做收口提交） |
-| `master` 分支 | **陈旧**。停在 `98724d1`（P1 之前）。不要从它合并、不要从它 pull、不要从它打 release。 |
-| `versionCode` / `versionName` | `14` / `0.12.1-p8`（`app/build.gradle.kts:17-18`） |
-| 工具链 | Kotlin 2.0.10 · AGP 8.7.3 · JDK 17 · compileSdk/targetSdk 35 · minSdk 26 |
-| Room schema | `v8` — P8 未新增表（widget 刷新不触表结构；ephemeral 对话仍不持久化，持久化见 P7.1 TODO #3）。schema 导出在 `app/schemas/dev.aria.memo.data.local.AppDatabase/{1..8}.json`。 |
-| 单元测试 | **≈240 项** passed · 0 failed（P7 基线 220 + P8 新增 WidgetRefresher / MemoWidgetDataSource limit=20 / SingleNoteRepo/PullWorker/PushWorker hook 点测试约 20 项；以 `./gradlew :app:testDebugUnitTest` 实际输出为准）。 |
+| `master` 分支 | **当前活跃**（P8.4 30-bucket parallel review-driven fix 已合入）。从这里 pull / 打 release。 |
+| `versionCode` / `versionName` | `35` / `0.12.22-p8.4`（`app/build.gradle.kts:17-18`） |
+| 工具链 | Kotlin 2.0.21 · AGP 8.7.3 · JDK 17 · compileSdk/targetSdk 36 · minSdk 26 · Glance 1.1.1 (CVE-2024-7254 缓解) |
+| Room schema | `v9` — P8.3 起 schema v9（增加 isPinned / single_notes / tombstoned 列与 indices）。schema 导出在 `app/schemas/dev.aria.memo.data.local.AppDatabase/{1..9}.json`。 |
+| 单元测试 | **3223 项** passed · 0 failed · 0 errors · 0 skipped（P8.4 30-bucket fix 后；含 OAuth URL-encode 回归 issue #116）。CI emulator BDD 9 条 instrumented scenario 全绿。 |
 | **CI/CD** | `.github/workflows/ci.yml`（P6.1.1 首次引入）— push/PR 自动跑 compile + unit test，gate 在 GitHub 侧。 |
 | GitHub issues | **0 个 open** · 75 个 closed（P8 review 产出的 issue 编号从 #76 起，见 Agent 6 review 结果）。 |
 | 工作树状态 | 见 `git status --porcelain`。P8 release 后若 DIRTY 则说明 P8.1 已经开工。 |

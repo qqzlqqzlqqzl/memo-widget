@@ -150,6 +150,11 @@ jobs:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The dependency-submission action POSTs to GitHub's dependency graph API.
+    # Without `contents: write` the call returns 403 "Resource not accessible
+    # by integration" — every push to master would mark this job as failed.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
