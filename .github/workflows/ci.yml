@@ -59,7 +59,7 @@ jobs:
 
       - name: Upload test report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-report
           path: app/build/reports/tests/testDebugUnitTest/
@@ -100,7 +100,7 @@ jobs:
 
       - name: Upload lint report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lint-results-debug
           path: app/build/reports/lint-results-debug.html
@@ -234,7 +234,7 @@ jobs:
 
       - name: Upload instrumented test report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: instrumented-test-report
           path: app/build/reports/androidTests/
