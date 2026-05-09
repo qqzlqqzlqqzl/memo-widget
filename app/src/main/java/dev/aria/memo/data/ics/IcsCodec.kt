@@ -27,6 +27,7 @@ object IcsCodec {
      * upper-case to match our decoder's case-folding lookup.
      */
     private const val X_REMINDER_KEY = "X-MEMO-REMINDER-MINUTES"
+    private const val ONE_DAY_MS = 86_400_000L
     private val UTC_FMT: DateTimeFormatter = DateTimeFormatter
         .ofPattern("yyyyMMdd'T'HHmmss'Z'")
         .withZone(ZoneOffset.UTC)
@@ -115,11 +116,17 @@ object IcsCodec {
         val dtstart = fields["DTSTART"] ?: return null
         val start = parseIcsInstant(dtstart.value, dtstart.params["TZID"]) ?: return null
         val dtend = fields["DTEND"]
-        val end = dtend?.let { parseIcsInstant(it.value, it.params["TZID"]) } ?: start
         // VALUE=DATE marks an all-day event explicitly; otherwise infer from the
         // basic-format length (`YYYYMMDD` has no `T`).
         val allDay = dtstart.params["VALUE"]?.equals("DATE", ignoreCase = true) == true ||
             !dtstart.value.contains('T')
+        // RFC 5545 §3.6.1: when DTEND is omitted on an all-day event, the event
+        // is conceptually one calendar day long (extends to next-day 00:00).
+        // Storing end == start would yield zero duration and break TodayWidget's
+        // window matching. For point-in-time events without DTEND we still fall
+        // back to start (matches RFC's "single point in time" semantics).
+        val end = dtend?.let { parseIcsInstant(it.value, it.params["TZID"]) }
+            ?: if (allDay) start + ONE_DAY_MS else start
         // Fixes #308: round-trip the reminder via the vendor X-property
         // we wrote in [encode]. Anything unparseable falls back to null
         // so corrupt files don't crash the decode.
