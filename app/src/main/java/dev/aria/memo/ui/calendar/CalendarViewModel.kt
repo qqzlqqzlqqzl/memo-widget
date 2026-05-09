@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -54,33 +55,59 @@ class CalendarViewModel(
     )
 
     /**
-     * Expand event occurrences only when [allEvents] emits. Fixes #130
-     * (Perf-1 H5): the previous combine(allEvents, allNotes) re-expanded
-     * every RRULE on every note write — at a few dozen recurring events
-     * across a 13-month window each note save was running thousands of
-     * occurrence calculations even though the events hadn't changed.
+     * Emits the current calendar date once per minute. Used to anchor the
+     * expansion window in [eventBlock] so that crossing midnight while the
+     * Calendar tab is open recomputes occurrences without requiring an
+     * `allEvents` refresh. Cold flow — only ticks when collected (i.e. while
+     * the Calendar tab is on screen and `state` is subscribed).
+     *
+     * Without this, [eventBlock] would freeze `today` to whatever
+     * `LocalDate.now()` returned the last time `allEvents` emitted, so a
+     * silent day-crossover (no event writes) would keep the Calendar UI on
+     * yesterday's window indefinitely. 1-minute granularity mirrors the
+     * worst-case stale-window the user can perceive when looking at the
+     * calendar; widgets are still synced precisely via DateChangedReceiver.
      */
-    private val eventBlock: kotlinx.coroutines.flow.Flow<EventBlock> = allEvents.map { events ->
-        val zone = ZoneId.systemDefault()
-        val today = LocalDate.now()
-        val windowStartMs = today.minusDays(HISTORY_BUFFER_DAYS)
-            .atStartOfDay(zone).toInstant().toEpochMilli()
-        val windowEndMs = today.plusDays(FUTURE_HORIZON_DAYS)
-            .atStartOfDay(zone).toInstant().toEpochMilli()
-        val occurrences = events.flatMap {
-            EventExpander.expand(it, windowStartMs, windowEndMs, zone)
-        }
-        val eventMarkers = HashSet<LocalDate>()
-        for (occ in occurrences) {
-            var d = java.time.Instant.ofEpochMilli(occ.startEpochMs).atZone(zone).toLocalDate()
-            val endDate = java.time.Instant.ofEpochMilli(occ.endEpochMs).atZone(zone).toLocalDate()
-            while (!d.isAfter(endDate)) {
-                eventMarkers.add(d)
-                d = d.plusDays(1)
+    private val todayTicker: kotlinx.coroutines.flow.Flow<LocalDate> =
+        kotlinx.coroutines.flow.flow {
+            while (true) {
+                emit(LocalDate.now())
+                kotlinx.coroutines.delay(60_000L)
             }
-        }
-        EventBlock(occurrences = occurrences, eventMarkers = eventMarkers)
-    }.flowOn(Dispatchers.Default)
+        }.distinctUntilChanged()
+
+    /**
+     * Expand event occurrences when [allEvents] emits OR when [todayTicker]
+     * advances past midnight. Fixes #130 (Perf-1 H5): the previous
+     * combine(allEvents, allNotes) re-expanded every RRULE on every note
+     * write — at a few dozen recurring events across a 13-month window each
+     * note save was running thousands of occurrence calculations even though
+     * the events hadn't changed. The new combine adds [todayTicker] only,
+     * which fires at most once per real day-crossover thanks to
+     * `distinctUntilChanged`, so the perf fix is preserved while the
+     * stale-window bug from #130's sibling (cross-day freeze) is closed.
+     */
+    private val eventBlock: kotlinx.coroutines.flow.Flow<EventBlock> =
+        kotlinx.coroutines.flow.combine(allEvents, todayTicker) { events, today ->
+            val zone = ZoneId.systemDefault()
+            val windowStartMs = today.minusDays(HISTORY_BUFFER_DAYS)
+                .atStartOfDay(zone).toInstant().toEpochMilli()
+            val windowEndMs = today.plusDays(FUTURE_HORIZON_DAYS)
+                .atStartOfDay(zone).toInstant().toEpochMilli()
+            val occurrences = events.flatMap {
+                EventExpander.expand(it, windowStartMs, windowEndMs, zone)
+            }
+            val eventMarkers = HashSet<LocalDate>()
+            for (occ in occurrences) {
+                var d = java.time.Instant.ofEpochMilli(occ.startEpochMs).atZone(zone).toLocalDate()
+                val endDate = java.time.Instant.ofEpochMilli(occ.endEpochMs).atZone(zone).toLocalDate()
+                while (!d.isAfter(endDate)) {
+                    eventMarkers.add(d)
+                    d = d.plusDays(1)
+                }
+            }
+            EventBlock(occurrences = occurrences, eventMarkers = eventMarkers)
+        }.flowOn(Dispatchers.Default)
 
     /** Note-only marker set — recomputed only when [allNotes] emits. */
     private val noteMarkers: kotlinx.coroutines.flow.Flow<Set<LocalDate>> = allNotes
