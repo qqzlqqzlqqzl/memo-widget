@@ -23,7 +23,7 @@ room = "2.6.1"
 workmanager = "2.9.1"
 security-crypto = "1.1.0"
 navigation-compose = "2.8.4"
-calendar-compose = "2.6.0"
+calendar-compose = "2.10.1"
 startup = "1.2.0"
 
 # Fix-W1 (P8.1 Robolectric integration tests)
