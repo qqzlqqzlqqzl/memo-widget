@@ -3,6 +3,7 @@ package dev.aria.memo.data.oauth
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
@@ -142,6 +143,52 @@ class GitHubOAuthClientTest {
         assertTrue("expected Err, got $result", result is OAuthResult.Err)
         val err = result as OAuthResult.Err
         assertEquals(OAuthErrorKind.AccessDenied, err.kind)
+    }
+
+    /**
+     * Regression for issue #116 (Bug-1 M3): clientId / scope / deviceCode /
+     * grant_type must be URL-encoded into the form body. Without encoding,
+     * a clientId containing `&` or `=` would be interpreted by GitHub as
+     * additional form parameters → `incorrect_client_credentials` →
+     * mis-mapped to BadClientId.
+     *
+     * We capture the raw request body via MockEngine and assert that special
+     * characters round-trip safely through `application/x-www-form-urlencoded`.
+     */
+    @Test
+    fun `requestDeviceCode url-encodes special characters in clientId (issue #116)`() = runTest {
+        val capturedBodies = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            capturedBodies.add(String(request.body.toByteArray(), Charsets.UTF_8))
+            respond(
+                content = ByteReadChannel(
+                    """{"device_code":"dc","user_code":"WDJB-MJHT","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}""",
+                ),
+                status = HttpStatusCode.OK,
+                headers = jsonHeaders,
+            )
+        }
+        val client = GitHubOAuthClient(httpClient = HttpClient(engine))
+
+        // ClientId containing `&`, `=`, `+`, ` `, `%` — chars that would break
+        // a naive `client_id=$clientId&scope=...` concatenation.
+        val nasty = "Iv1.evil&injected=value+with space%and"
+        val result = client.requestDeviceCode(nasty)
+
+        assertTrue("expected Ok, got $result", result is OAuthResult.Ok)
+        assertEquals(1, capturedBodies.size)
+        val body = capturedBodies.single()
+        // Each special char must be escaped in the body. The exact encoding is
+        // produced by URLEncoder.encode(s, "UTF-8"): `&`→`%26`, `=`→`%3D`,
+        // `+`→`%2B`, ` `→`+`, `%`→`%25`.
+        assertTrue(
+            "body should escape '&' as %26 — got: $body",
+            body.contains("client_id=Iv1.evil%26injected%3Dvalue%2Bwith+space%25and"),
+        )
+        // Double-check that no raw `&` from the clientId leaks into the form
+        // structure (the only `&` allowed is the separator before `scope=`).
+        val ampersands = body.count { it == '&' }
+        assertEquals("body must contain exactly one structural '&'", 1, ampersands)
     }
 
     @Test
