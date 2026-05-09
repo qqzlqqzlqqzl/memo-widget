@@ -73,6 +73,7 @@ import dev.aria.memo.ui.components.MemoEmptyState
 import dev.aria.memo.ui.components.MemoSectionHeader
 import dev.aria.memo.ui.components.OfflineBanner
 import dev.aria.memo.ui.components.ScrollAwareFab
+import dev.aria.memo.ui.components.SyncBanner
 import dev.aria.memo.ui.theme.MemoSpacing
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
@@ -246,61 +247,6 @@ fun NoteListScreen(
 
 /** Screen-scoped holder for the row awaiting deletion confirmation. */
 private data class PendingDelete(val uid: String, val title: String)
-
-@Composable
-private fun SyncBanner(
-    status: SyncStatus,
-    onDismiss: () -> Unit,
-    onOpenSettings: () -> Unit,
-) {
-    val err = status as? SyncStatus.Error ?: return
-    Surface(
-        color = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = MemoSpacing.lg, vertical = MemoSpacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
-        ) {
-            // Fixes #229 (UI-A #20): a leading icon makes the banner
-            // legible as an error at a glance — pure text on
-            // errorContainer was too subtle for the status to register
-            // when the user was scrolling the list. Body text bumped
-            // to bodyMedium for the same reason.
-            Icon(
-                imageVector = Icons.Filled.SyncProblem,
-                contentDescription = null,
-            )
-            val friendlyText = when (err.code) {
-                ErrorCode.UNAUTHORIZED -> "GitHub 认证失败，请检查 PAT"
-                ErrorCode.NETWORK -> "网络错误，稍后会自动重试"
-                ErrorCode.CONFLICT -> "并发冲突，已自动重试"
-                ErrorCode.NOT_FOUND -> "远程文件不存在"
-                ErrorCode.NOT_CONFIGURED -> "尚未配置 GitHub 同步"
-                ErrorCode.UNKNOWN -> "同步失败"
-            } + err.message.takeIf { BuildConfig.DEBUG }?.let { "（$it）" }.orEmpty()
-            Text(
-                text = friendlyText,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            // Fix-X1 follow-up: 凭证类错误（认证失败 / 没配置）给一键跳设置的
-            // 入口。其他类型的错误用户没法直接行动，只显示"知道了"。
-            if (err.code == ErrorCode.UNAUTHORIZED || err.code == ErrorCode.NOT_CONFIGURED) {
-                TextButton(onClick = onOpenSettings) {
-                    Text("去设置", color = MaterialTheme.colorScheme.onErrorContainer)
-                }
-            }
-            TextButton(onClick = onDismiss) {
-                Text("知道了", color = MaterialTheme.colorScheme.onErrorContainer)
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
