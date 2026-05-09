@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dev.aria.memo.data.ErrorCode
 import dev.aria.memo.data.MemoResult
+import dev.aria.memo.data.PreferencesStore
 import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.SingleNoteRepository
 import dev.aria.memo.data.ics.IcsCodec
@@ -319,7 +320,17 @@ class PullWorker(
         if (roomChanged) {
             WidgetRefresher.refreshAllNow(applicationContext)
         }
-        return if (anyNetwork) Result.retry() else Result.success()
+        // Persist "last successful pull" so the SyncStatusCard in Settings
+        // can answer "其他设备的改动来了吗" across process restarts. Only
+        // on the clean-success branch — retry means transient failure
+        // happened and the cycle hasn't actually completed.
+        return if (anyNetwork) {
+            Result.retry()
+        } else {
+            PreferencesStore(applicationContext)
+                .setLastPullTime(System.currentTimeMillis())
+            Result.success()
+        }
     }
 
     /**

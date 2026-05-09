@@ -8,6 +8,36 @@
 
 ---
 
+## [v0.12.18-p8 → v0.12.21-p8] - 2026-04-29
+
+R8 install-failure 修复浪潮 + 体验补强。从用户反馈「6M 的 release APK 装不上、25M 的旧版能装」开始，定位到 R8 把 Glance widget reflectively-instantiated 的子类剥光导致 PackageManager 拒绝合并 manifest receivers，连带补齐 release 签名链与几项「方便用户帮我们排查 bug」的诊断能力。
+
+### Added
+
+- **设置 → 外观主题**: 三选一 FilterChip（跟随系统 / 亮 / 暗）。`PreferencesStore.themeMode` (DataStore) 持久化，`MemoThemeWithMode` 在 MainActivity / EditActivity 顶层 `collectAsStateWithLifecycle` 订阅，切换无需重启 Activity。
+- **设置 → 日志导出**: `LogExporter.captureToFile` 把本进程最近 2000 行 logcat（threadtime 格式）+ 持久化崩溃栈写到 `cacheDir/logs/memo-log-{ts}.txt`，文件头自带 `versionName/versionCode` + 设备型号 + Android 版本 + PID + 抓取时间。`shareIntent` 通过 FileProvider (`${applicationId}.fileprovider`) 弹系统分享面板，用户可发给开发者排查（Telegram / 邮件 / 微信均可）。文件不含 PAT/AI key。
+- **持久化崩溃日志**: `CrashLogger.install(ctx)` 在 `MemoApplication.onCreate` 第一行装的 `UncaughtExceptionHandler`，把崩溃栈写到 `filesDir/crash/crash-{ts}.txt` 后链给系统默认 handler。`LogExporter` 导出时自动 tail 这些文件，logcat 缓冲区被冲掉后开发者还能看到历史崩溃。最多保留 5 份，安装时清理旧文件防止崩溃循环灌爆磁盘。
+- **AndroidManifest FileProvider**: 新增 `androidx.core.content.FileProvider` `<provider>`，`exported=false`、`grantUriPermissions=true`，仅暴露 `cache-path` 下的 `logs/` 子目录（`res/xml/file_paths.xml`）。
+- **设置 → 崩溃指示卡**: 当 `filesDir/crash/` 有持久化崩溃文件时自动浮现的 warning 卡（`CrashIndicatorCard`），主动告知用户「检测到 N 条崩溃记录 · 最近 [时间]」，避免崩溃被忽略。两个独立按钮：「导出日志」（含历史崩溃做附录）、「清空记录」（`CrashLogger.clearAll`）。`LaunchedEffect` 重读 crash 目录，清空后卡片自动消失。
+- **设置 → 同步状态卡**: `SyncStatusCard` 区分两条用户问的不同问题：「我刚改的笔记上传了吗」（push）和「其他设备的改动来了吗」（pull）。两条独立持久化时间戳 `PreferencesStore.lastPushEpochMs` + `lastPullEpochMs`（`longPreferencesKey`），分别由 `PushWorker.doWork()` 在 `roomChanged && !retry` 时写、`PullWorker.doWork()` 在 `!anyNetwork` 干净 success 分支写。卡片渲染两行：「已上传到 GitHub：刚刚」+「已检查 GitHub 更新：12 分钟前  ·  默认 30 分钟自动检查」。`SyncStatusFormatter.formatRelative(now, epochMs)` 抽为纯函数，5 个时间分支（刚刚 / N 分钟前 / N 小时前 / yyyy-MM-dd / null=未发生）。仅在 `state.isConfigured=true` 时显示——未配置 GitHub 时由 PatStatusCard 直接告知缺什么，避免 SyncStatusCard 的「尚未上传」让用户困惑。
+- **设置 → 同步状态卡 → 「立即同步」按钮**: `FilledTonalButton` 一键调 `SyncScheduler.enqueuePullNow(ctx)` + `SyncScheduler.enqueuePush(ctx)`，立刻入队 PullWorker + PushWorker（KEEP 策略防重复）。snackbar 提示「已请求立即同步」，结果通过现有 SyncBanner 反馈。补全此前用户没有强制触发同步入口的缺口（之前必须等 30 分钟周期或用一次写笔记触发 push）。
+- **`SyncScheduler.PULL_NOW_POLICY` 锁定**: 提取 `enqueuePullNow` 的 `ExistingWorkPolicy.KEEP` 为 `internal val`（对称于既有 `PUSH_POLICY`），新加 3 个 `SyncSchedulerPolicyTest` 用例锁住「不可改成 REPLACE / APPEND_OR_REPLACE」——前者会取消进行中的 PullWorker 致 Room 部分提交漂移，后者会让「立即同步」连续点击落在 backoff 链尾互相阻塞。两个 policy 现在对称防 Fix-WP 类回归。
+- **JVM 单元测试**: `CrashLoggerTest`（7 用例：crashDir 自动创建 / 空目录 summary / 计数+时间戳 / clearAll / install 时按 mtime 裁剪到 5 份 / 不超阈值不动 / **install handler 端到端：模拟未捕获异常，验证 crash 文件落盘 + 链给 previous handler**）+ `LogExporterTest`（5 用例：路径正确 / 标准 header 齐全 / 空 crash 标 (none) / 历史崩溃文件名+内容串接 / 连续两次文件名唯一）+ `SyncStatusFormatterTest`（11 用例：5 个分支 + 时钟回拨/负值/0L 边缘）+ `PreferencesStoreSyncKeysTest`（3 用例：push/pull 用独立 DataStore key、默认值都是 0L、覆盖一个不影响另一个——锁住 key 撞车导致"上传时间被检查时间覆盖"的隐性 bug）。共 26 个新测试，全套 3219 tests 全绿，0 回归。
+
+### Changed — bug fixes
+
+- **release APK 装不上修复**: R8 默认认不出 Glance `glanceAppWidget = MemoWidget()` 字段初始化的反射依赖，导致 `MemoWidget` / `TodayWidget` 被剥；PackageManager 在 install 阶段查 manifest receiver 引用类时找不到，整个 APK install 被拒绝（用户看到的就是「解析失败 / 安装失败」）。`proguard-rules.pro` 补齐：`-keep class * extends GlanceAppWidget { *; }`、`-keep class * extends GlanceAppWidgetReceiver { *; }`、`-keep class * implements ActionCallback { *; }`、`-keep class dev.aria.memo.widget.** { *; }`、`-keep class dev.aria.memo.{MemoApplication,MainActivity,EditActivity}`、`-keep class * extends BroadcastReceiver`、`androidx.work.**` / `androidx.profileinstaller.**` / `androidx.startup.**`。dexdump 验证 release classes.dex 内 8 个关键类 + FileProvider 全部保留。
+- **release APK 改用 debug keystore 签名（临时）**: 之前发的是 `app-release-unsigned.apk`，PackageManager 直接拒。`app/build.gradle.kts` 的 release buildType 改 `signingConfig = signingConfigs.getByName("debug")`，证书 SHA-256 `c64af4ec…` 与之前用户能装的 debug APK 一致，**无需卸载即可覆盖安装**。正式 Play Store 签名串密码 + GitHub Actions secret 流见 #274 / #288。
+- **dataExtractionRules + fullBackupContent**: 新增两个 XML 文件 + manifest 同步引用，关闭 cloud backup / device transfer 全部 domain — PAT 在 EncryptedSharedPreferences 里走 AndroidKeystore master key，跨设备恢复必失败，索性禁掉。修 lint `[DataExtractionRules]` warning。
+
+### Dep upgrades (patch only, P9-revisit 保守批次)
+
+- Kotlin 2.0.10 → 2.0.21；KSP 2.0.10-1.0.24 → 2.0.21-1.0.28（与 Kotlin 锁版本）。
+- Ktor 2.3.12 → 2.3.13；androidx.lifecycle 2.8.5 → 2.8.7。
+- 全部为补丁版本无 API 变化；测试套件全绿。
+
+---
+
 ## [v0.12.2-p8 → v0.12.17-p8] - 2026-04-27 → 2026-04-29
 
 P8.1 punch-list closeout + P9-revisit campaign. ~16 incremental tagged

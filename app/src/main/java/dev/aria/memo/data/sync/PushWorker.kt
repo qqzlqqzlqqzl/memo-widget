@@ -334,7 +334,19 @@ class PushWorker(
         if (roomChanged) {
             WidgetRefresher.refreshAllNow(applicationContext)
         }
-        return if (retry) Result.retry() else Result.success()
+        // Persist "last successful push" so the SyncStatusCard in Settings
+        // can answer "我刚改的笔记上传了吗". Recorded only when at least
+        // one row went clean (`roomChanged`) — a no-op cycle (nothing
+        // pending) or an all-401 wave shouldn't read as "you're synced".
+        return if (retry) {
+            Result.retry()
+        } else {
+            if (roomChanged) {
+                dev.aria.memo.data.PreferencesStore(applicationContext)
+                    .setLastPushTime(System.currentTimeMillis())
+            }
+            Result.success()
+        }
     }
 }
 

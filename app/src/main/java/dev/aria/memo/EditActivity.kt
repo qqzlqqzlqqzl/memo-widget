@@ -8,7 +8,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import dev.aria.memo.ui.edit.EditScreen
 import dev.aria.memo.ui.edit.EditViewModel
-import dev.aria.memo.ui.theme.MemoTheme
+import dev.aria.memo.data.PreferencesStore
+import dev.aria.memo.ui.theme.MemoThemeWithMode
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 
 /**
  * Thin Compose host for EditScreen. Launched by the widget's "Add memo"
@@ -62,8 +65,10 @@ class EditActivity : ComponentActivity() {
         // existing single-note. New-note mode (no uid) has nothing to delete
         // yet — back-press is the escape hatch for that flow.
         val editingUid = uid
+        val prefs = PreferencesStore(applicationContext)
         setContent {
-            MemoTheme {
+            val themeMode by prefs.themeMode.collectAsStateWithLifecycle(initialValue = "auto")
+            MemoThemeWithMode(themeMode = themeMode) {
                 EditScreen(
                     viewModel = viewModel,
                     // Guard against a second Success landing after we've

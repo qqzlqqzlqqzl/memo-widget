@@ -8,10 +8,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.aria.memo.data.PreferencesStore
 import dev.aria.memo.notify.NotificationPermissionBus
 import dev.aria.memo.ui.nav.AppNav
-import dev.aria.memo.ui.theme.MemoTheme
+import dev.aria.memo.ui.theme.MemoThemeWithMode
 
 /**
  * Launcher host. Bottom-nav shell (笔记 / 日历 / 设置). FLAG_SECURE is applied
@@ -38,8 +42,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maybeRequestNotificationPermission()
+        val prefs = PreferencesStore(applicationContext)
         setContent {
-            MemoTheme {
+            // Theme mode preference picked from PreferencesStore so changes
+            // in Settings flip the palette without an Activity restart.
+            // Default `auto` until DataStore emits the persisted value.
+            val themeMode by prefs.themeMode.collectAsStateWithLifecycle(initialValue = "auto")
+            MemoThemeWithMode(themeMode = themeMode) {
                 AppNav(
                     onOpenEditor = {
                         startActivity(Intent(this, EditActivity::class.java))

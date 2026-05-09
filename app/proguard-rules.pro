@@ -79,6 +79,18 @@
 -keep class * extends androidx.work.Worker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
+# WorkManager's manifest registers internal ConstraintProxy receivers,
+# ForceStopRunnable receivers, RescheduleReceiver etc. — keeping the
+# whole library prevents PackageManager rejection on install for any
+# manifest-merged receiver that the app never directly references.
+-keep class androidx.work.** { *; }
+-dontwarn androidx.work.**
+
+# androidx.profileinstaller / startup also register manifest entries via
+# library-merge.
+-keep class androidx.profileinstaller.** { *; }
+-keep class androidx.startup.** { *; }
+-dontwarn androidx.profileinstaller.**
 
 # ===== Manifest-declared components (Activity / Receiver / Application) =====
 # Each of these is instantiated by the system via reflection on the class

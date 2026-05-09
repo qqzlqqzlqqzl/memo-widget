@@ -16,6 +16,7 @@
   resizeMode "horizontal|vertical" 允许用户从 2x2 拖到 4x4，看到 20 条全部。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:minWidth="110dp"
     android:minHeight="110dp"
     android:targetCellWidth="3"
@@ -24,4 +25,5 @@
     android:initialLayout="@layout/glance_default_loading_layout"
     android:description="@string/widget_description"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen"
+    tools:targetApi="31" />

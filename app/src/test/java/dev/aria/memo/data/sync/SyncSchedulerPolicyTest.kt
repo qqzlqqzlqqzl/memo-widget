@@ -96,4 +96,43 @@ class SyncSchedulerPolicyTest {
             SyncScheduler.PUSH_POLICY,
         )
     }
+
+    /**
+     * Mirror coverage for [SyncScheduler.enqueuePullNow] which the
+     * Settings → 「立即同步」 button now drives. Same KEEP rationale, same
+     * three guards, same comment trail so the policy is regression-proof
+     * on both sides.
+     */
+    @Test
+    fun `enqueuePullNow uses KEEP policy`() {
+        assertEquals(
+            "enqueuePullNow MUST use KEEP — REPLACE cancels in-flight pulls " +
+                "mid-HTTP; APPEND_OR_REPLACE serialises the 立即同步 button " +
+                "onto the periodic chain so transient NETWORK errors stall " +
+                "every manual tap until backoff clears.",
+            ExistingWorkPolicy.KEEP,
+            SyncScheduler.PULL_NOW_POLICY,
+        )
+    }
+
+    @Test
+    fun `enqueuePullNow policy is not APPEND_OR_REPLACE`() {
+        assertNotEquals(
+            "APPEND_OR_REPLACE on the pull side reproduces the Fix-WP failure " +
+                "mode — manual sync taps queue up behind a backed-off worker.",
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            SyncScheduler.PULL_NOW_POLICY,
+        )
+    }
+
+    @Test
+    fun `enqueuePullNow policy is not REPLACE`() {
+        assertNotEquals(
+            "REPLACE cancels the in-flight PullWorker — partial Room writes " +
+                "from the cancelled pull leave the user with an inconsistent " +
+                "snapshot until the next cycle.",
+            ExistingWorkPolicy.REPLACE,
+            SyncScheduler.PULL_NOW_POLICY,
+        )
+    }
 }

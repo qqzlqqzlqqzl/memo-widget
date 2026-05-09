@@ -7,6 +7,7 @@ import dev.aria.memo.data.sync.ConfigChangeListener
 import dev.aria.memo.data.sync.SyncScheduler
 import dev.aria.memo.notify.NotificationChannelSetup
 import dev.aria.memo.notify.QuickAddNotificationManager
+import dev.aria.memo.util.CrashLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +22,11 @@ import kotlinx.coroutines.launch
 class MemoApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Install crash handler FIRST so a crash inside ServiceLocator.init or
+        // any subsequent init still leaves a persistent stack trace on disk.
+        // Chains to the system default so process death + the OS-level "X
+        // stopped" dialog still happen normally.
+        CrashLogger.install(this)
         // ServiceLocator.init 必须保持同步：UI / widget / Worker 第一次读都依赖它
         // 构造完毕。Room 的 `.build()` 本身只是 lazy open，不会触发 IO；
         // HttpClient(CIO) 构造也足够快（约 1–3ms）。这里保持同步，重活在下面的

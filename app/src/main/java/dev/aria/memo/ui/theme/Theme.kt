@@ -86,6 +86,36 @@ fun MemoTheme(
 }
 
 /**
+ * Wrapper that reads the user's stored theme preference from
+ * [PreferencesStore] and resolves it to a concrete dark/light boolean
+ * before delegating to [MemoTheme]. Caller passes [themeMode] (one of
+ * `auto` / `light` / `dark`); this composable handles the system-fallback
+ * branch for `auto`.
+ *
+ * Useful for the host activity which collects the preference flow with
+ * `collectAsState()` then forwards the string here without each screen
+ * having to re-read DataStore.
+ */
+@Composable
+fun MemoThemeWithMode(
+    themeMode: String,
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    val systemDark = isSystemInDarkTheme()
+    val resolvedDark = when (themeMode) {
+        "light" -> false
+        "dark" -> true
+        else -> systemDark // "auto" or any unknown value
+    }
+    MemoTheme(
+        darkTheme = resolvedDark,
+        dynamicColor = dynamicColor,
+        content = content,
+    )
+}
+
+/**
  * Named extensions on [MaterialTheme] for semantic colors the default M3
  * scheme doesn't expose (warning / inline-code background). Call sites do
  * `MemoThemeColors.warning` / `MemoThemeColors.inlineCodeBg` instead of

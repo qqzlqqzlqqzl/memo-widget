@@ -32,6 +32,21 @@ object SyncScheduler {
      */
     internal val PUSH_POLICY: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
 
+    /**
+     * Same KEEP rationale as [PUSH_POLICY] applied to one-shot pulls:
+     *   - REPLACE would cancel an in-flight PullWorker mid-HTTP (e.g. the
+     *     "Settings → 立即同步" button tapped while the 30-min periodic
+     *     pull is already running) and leave Room in an undefined state
+     *     for the partial commit window.
+     *   - APPEND_OR_REPLACE serialises taps onto a chain so a transient
+     *     NETWORK error blocks every subsequent manual sync until backoff
+     *     elapses — the same Fix-WP failure mode as the push side.
+     *
+     * `internal` so [SyncSchedulerPolicyTest] can assert the value without
+     * spinning up a real WorkManager.
+     */
+    internal val PULL_NOW_POLICY: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
+
     private val networkConstraints = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
@@ -67,13 +82,13 @@ object SyncScheduler {
             .enqueueUniqueWork(PUSH_UNIQUE, ExistingWorkPolicy.REPLACE, request)
     }
 
-    /** One-shot pull triggered on app open / pull-to-refresh. */
+    /** One-shot pull triggered on app open / pull-to-refresh / "立即同步". */
     fun enqueuePullNow(context: Context) {
         val request = OneTimeWorkRequestBuilder<PullWorker>()
             .setConstraints(networkConstraints)
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(PULL_NOW_UNIQUE, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(PULL_NOW_UNIQUE, PULL_NOW_POLICY, request)
     }
 
     /** Periodic background pull — call from Application.onCreate. */

@@ -1,5 +1,6 @@
 package dev.aria.memo.ui.settings
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.aria.memo.data.PreferencesStore
 import dev.aria.memo.data.ServiceLocator
+import dev.aria.memo.data.sync.SyncScheduler
 import dev.aria.memo.data.oauth.GitHubOAuthClient
 import dev.aria.memo.notify.NotificationPermissionBus
 import dev.aria.memo.notify.QuickAddNotificationManager
@@ -70,8 +73,13 @@ import dev.aria.memo.ui.oauth.OAuthSignInViewModel
 import dev.aria.memo.ui.theme.MemoSpacing
 import dev.aria.memo.ui.theme.MemoTheme
 import dev.aria.memo.ui.theme.MemoThemeColors
+import dev.aria.memo.util.CrashLogger
+import dev.aria.memo.util.LogExporter
+import dev.aria.memo.util.SyncStatusFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,6 +109,12 @@ fun SettingsScreen(
     val preferencesStore = remember(ctx) { PreferencesStore(ctx.applicationContext) }
     val quickAddEnabled by preferencesStore.quickAddEnabled
         .collectAsStateWithLifecycle(initialValue = false)
+    val themeMode by preferencesStore.themeMode
+        .collectAsStateWithLifecycle(initialValue = "auto")
+    val lastPullEpochMs by preferencesStore.lastPullEpochMs
+        .collectAsStateWithLifecycle(initialValue = 0L)
+    val lastPushEpochMs by preferencesStore.lastPushEpochMs
+        .collectAsStateWithLifecycle(initialValue = 0L)
 
     // OAuth device-flow scaffolding. Kept local so the `ui/oauth/` package
     // doesn't need any of the SettingsScreen state.
@@ -279,6 +293,46 @@ fun SettingsScreen(
                     }
                 }
             },
+            themeMode = themeMode,
+            onThemeModeChange = { mode ->
+                scope.launch { preferencesStore.setThemeMode(mode) }
+            },
+            lastPullEpochMs = lastPullEpochMs,
+            lastPushEpochMs = lastPushEpochMs,
+            onSyncNow = {
+                SyncScheduler.enqueuePullNow(ctx)
+                SyncScheduler.enqueuePush(ctx)
+                scope.launch {
+                    snackbarHostState.showSnackbar("已请求立即同步")
+                }
+            },
+            onExportLogs = {
+                scope.launch {
+                    try {
+                        val (file, crashCount) = withContext(Dispatchers.IO) {
+                            val f = LogExporter.captureToFile(ctx)
+                            val n = dev.aria.memo.util.CrashLogger.crashDir(ctx)
+                                .listFiles()?.size ?: 0
+                            f to n
+                        }
+                        ctx.startActivity(LogExporter.shareIntent(ctx, file))
+                        // Surface the crash count so the user knows the export
+                        // is "interesting" (has historical crashes worth sharing)
+                        // vs just-in-case (no crashes recorded).
+                        if (crashCount > 0) {
+                            snackbarHostState.showSnackbar(
+                                "日志已生成，附带 $crashCount 条历史崩溃"
+                            )
+                        }
+                    } catch (e: ActivityNotFoundException) {
+                        snackbarHostState.showSnackbar("没找到能接收文件的应用")
+                    } catch (e: Exception) {
+                        snackbarHostState.showSnackbar(
+                            "导出日志失败：${e.message ?: e.javaClass.simpleName}"
+                        )
+                    }
+                }
+            },
         )
     }
 
@@ -422,7 +476,22 @@ private fun SettingsContent(
     onOpenNotificationSettings: () -> Unit = {},
     quickAddEnabled: Boolean = false,
     onQuickAddToggle: (Boolean) -> Unit = {},
+    themeMode: String = "auto",
+    onThemeModeChange: (String) -> Unit = {},
+    onExportLogs: () -> Unit = {},
+    lastPullEpochMs: Long = 0L,
+    lastPushEpochMs: Long = 0L,
+    onSyncNow: () -> Unit = {},
 ) {
+    val ctx = LocalContext.current
+    val ioScope = rememberCoroutineScope()
+    // Bumped after a clear so the LaunchedEffect below re-reads the directory
+    // and the indicator card disappears.
+    var crashRefreshKey by remember { mutableIntStateOf(0) }
+    var crashSummary by remember { mutableStateOf(CrashLogger.CrashSummary(0, null)) }
+    LaunchedEffect(crashRefreshKey) {
+        crashSummary = withContext(Dispatchers.IO) { CrashLogger.summary(ctx) }
+    }
     Column(
         modifier = Modifier
             .padding(innerPadding)
@@ -434,9 +503,37 @@ private fun SettingsContent(
         if (notificationDenied) {
             NotificationPermissionCard(onOpenSettings = onOpenNotificationSettings)
         }
+        if (crashSummary.count > 0) {
+            CrashIndicatorCard(
+                summary = crashSummary,
+                onExport = onExportLogs,
+                onClear = {
+                    ioScope.launch {
+                        withContext(Dispatchers.IO) { CrashLogger.clearAll(ctx) }
+                        crashRefreshKey++
+                    }
+                },
+            )
+        }
+        // Hide the sync status card when GitHub isn't configured — its
+        // "尚未上传 / 尚未检查" message adds confusion for users who haven't
+        // even set up the repo, and PatStatusCard below already tells them
+        // what's missing. Surfaces immediately on the next recomposition
+        // after they finish configuring.
+        if (state.isConfigured) {
+            SyncStatusCard(
+                lastPushEpochMs = lastPushEpochMs,
+                lastPullEpochMs = lastPullEpochMs,
+                onSyncNow = onSyncNow,
+            )
+        }
         QuickAddToggleCard(
             enabled = quickAddEnabled,
             onToggle = onQuickAddToggle,
+        )
+        ThemeChooserCard(
+            mode = themeMode,
+            onChange = onThemeModeChange,
         )
         // Fix-X1: replaces the legacy StatusCard. The new card surfaces the
         // PAT *liveness* state machine (Unknown / Verifying / Valid / Invalid
@@ -581,6 +678,8 @@ private fun SettingsContent(
             onTest = onTestAi,
         )
 
+        LogExportCard(onExport = onExportLogs)
+
         HelpEntryCard(onOpenHelp = onOpenHelp)
     }
 }
@@ -695,6 +794,131 @@ private fun AiConfigSection(
     }
 }
 
+/**
+ * Sync status — answers two distinct user questions:
+ *  - "我刚改的笔记上传到 GitHub 了吗" → push timestamp (PushWorker.success
+ *    with at least one row clean'd).
+ *  - "其他设备的改动来了吗" → pull timestamp (PullWorker.success with no
+ *    transient errors).
+ *
+ * Both timestamps live in [PreferencesStore] so they survive process
+ * restart. 0L (never recorded) renders as "尚未上传" / "尚未检查".
+ */
+@Composable
+private fun SyncStatusCard(
+    lastPushEpochMs: Long,
+    lastPullEpochMs: Long,
+    onSyncNow: () -> Unit,
+) {
+    val nowMs = System.currentTimeMillis()
+    val pushRel = SyncStatusFormatter.formatRelative(nowMs, lastPushEpochMs) ?: "尚未上传"
+    val pullRel = SyncStatusFormatter.formatRelative(nowMs, lastPullEpochMs) ?: "尚未检查"
+    MemoCard {
+        Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+            Text(
+                text = "同步状态",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "已上传到 GitHub：$pushRel",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "已检查 GitHub 更新：$pullRel  ·  默认 30 分钟自动检查",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Manual trigger — kicks both PullWorker (catch other-device
+            // edits) and PushWorker (verify local edits landed) immediately.
+            // KEEP policy collapses repeated taps so spamming the button
+            // can't pile up workers; the SyncBanner reflects the result.
+            FilledTonalButton(onClick = onSyncNow) {
+                Text("立即同步")
+            }
+        }
+    }
+}
+
+/**
+ * Crash indicator — only appears when [CrashLogger] has persisted crash
+ * files. Shows count + most-recent timestamp with two actions: export logs
+ * (forwards to LogExportCard's same path) and clear, kept independent so
+ * the user can decide whether to triage now or wipe and move on. Splitting
+ * into two buttons also avoids a race between the async log capture (which
+ * reads the crash files) and a hypothetical "export+clear" combined op.
+ */
+@Composable
+private fun CrashIndicatorCard(
+    summary: CrashLogger.CrashSummary,
+    onExport: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val warningAccent = MemoThemeColors.warning
+    val timeText = summary.latestEpochMs?.let { ms ->
+        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+            .format(java.util.Date(ms))
+    } ?: "—"
+    MemoCard(accentColor = warningAccent) {
+        Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+            Text(
+                text = "检测到 ${summary.count} 条崩溃记录",
+                style = MaterialTheme.typography.titleMedium,
+                color = warningAccent,
+            )
+            Text(
+                text = "最近一次：$timeText  ·  导出后可发开发者排查；不再需要时可清空。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
+            ) {
+                FilledTonalButton(
+                    onClick = onExport,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("导出日志")
+                }
+                OutlinedButton(
+                    onClick = onClear,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("清空记录")
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Log export card — taps generate a timestamped .txt of the current process's
+ * recent logcat into cacheDir/logs/ then opens a share sheet so the user can
+ * forward it to the dev for triage. Implementation lives in [LogExporter];
+ * the card just renders the button + explanatory copy.
+ */
+@Composable
+private fun LogExportCard(onExport: () -> Unit) {
+    MemoCard {
+        Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+            Text(
+                text = "日志导出",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "遇到问题时点这里：会把最近运行日志生成 .txt，方便发给开发者排查。" +
+                    "日志只包含本应用的运行记录，不含密钥。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton(onClick = onExport) {
+                Text("导出最近日志")
+            }
+        }
+    }
+}
+
 @Composable
 private fun HelpEntryCard(onOpenHelp: () -> Unit) {
     // User feedback called out missing in-app docs — this card opens the bundled
@@ -739,6 +963,46 @@ private fun StatusCard(state: SettingsUiState) {
             text = "备注会追加到 ${state.owner.ifBlank { "<owner>" }}/${state.repo.ifBlank { "<repo>" }} 的 ${state.branch.ifBlank { "main" }} 分支",
             style = MaterialTheme.typography.bodyMedium,
         )
+    }
+}
+
+/**
+ * Theme picker — three FilterChips inside a MemoCard. Mode strings
+ * `auto` / `light` / `dark` mirror what `PreferencesStore.themeMode`
+ * persists; MemoThemeWithMode reads the same value at AppNav root and
+ * flips the palette without an Activity restart.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeChooserCard(
+    mode: String,
+    onChange: (String) -> Unit,
+) {
+    MemoCard {
+        Column(verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm)) {
+            Text(
+                text = "外观主题",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "选「跟随系统」会随系统暗色模式切换；选「亮」/「暗」固定一种。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MemoSpacing.xs),
+            ) {
+                listOf("auto" to "跟随系统", "light" to "亮", "dark" to "暗").forEach { (value, label) ->
+                    androidx.compose.material3.FilterChip(
+                        selected = mode == value,
+                        onClick = { onChange(value) },
+                        label = { Text(label) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
     }
 }
 

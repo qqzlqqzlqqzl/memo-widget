@@ -10,7 +10,7 @@ HANDOFF.md — memo-widget Android app 的 AI 接手文档（AI-facing handoff�
 > 给下一个会话的机器可读上下文。下文出现的所有绝对路径、命令、标识符都是字面值。
 > 如果本文件与仓库实际状态冲突，以仓库为准 — 然后回来修这份文件。
 
-上次重新生成：**2026-04-24**，基于 `feature/p3-polish` 分支 P8 Widget 重做 + 自动刷新。当前 release：v0.12.17-p8（**2026-04-29 P8.1 closeout + P9-revisit 浪潮**已完成 ~16 个增量版本：v0.12.2-p8 → v0.12.17-p8，详见 `CHANGELOG.md` 单条 entry 与 `HANDOFF_2026-04-29.md`；P7 为 v0.11.0-p7；P6.1.1 为 v0.10.1-p6.1.1）。
+上次重新生成：**2026-04-24**，基于 `feature/p3-polish` 分支 P8 Widget 重做 + 自动刷新。当前 release：v0.12.21-p8（**2026-04-29 P8.1 closeout + P9-revisit + R8 install-failure 修复浪潮**：v0.12.2-p8 → v0.12.21-p8，detail 见 `CHANGELOG.md` 两条 entry；R8 修复涉及 Glance widget 子类 keep rules + release APK debug keystore 签名 + 设置→主题切换 + 设置→日志导出 / 崩溃栈持久化；P7 为 v0.11.0-p7；P6.1.1 为 v0.10.1-p6.1.1）。
 
 ## ✅ P8 已完成（Widget 重做 + 全链路自动刷新）
 
@@ -148,7 +148,7 @@ _待补（Agent 6 review 产出后填入）_
 
 | 字段 | 值 |
 |---|---|
-| 最近发布的 release | `v0.12.17-p8`（tag，2026-04-29；P9-revisit 浪潮收尾） |
+| 最近发布的 release | `v0.12.21-p8`（tag，2026-04-29；R8 install-fix + 主题切换 + 日志/崩溃导出） |
 | Release 来源分支 | `feature/p3-polish`（tag 从这里打，**不是** `master`） |
 | 当前分支 | `feature/p3-polish` |
 | HEAD SHA | 见 `git rev-parse HEAD`（P8 Widget 重做收口提交） |
@@ -484,7 +484,7 @@ cd /Users/aria-score-00/AndroidProjects/memo-widget
 git rev-parse HEAD                                         # 期望 P8 release commit 或更新
 git status --porcelain                                     # 期望 CLEAN（P8 release 后）
 ./gradlew :app:testDebugUnitTest --rerun-tasks             # 期望：≈240 过，0 失败
-gh release list --limit 3                                  # 榜首：v0.12.17-p8
+gh release list --limit 3                                  # 榜首：v0.12.21-p8
 gh issue list --state open --limit 20                      # 期望：0 open
 gh api rate_limit --jq .resources.core                     # 跑 gh 循环前先看余量
 ```
