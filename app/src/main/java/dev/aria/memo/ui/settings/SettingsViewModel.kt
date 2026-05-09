@@ -1,5 +1,6 @@
 package dev.aria.memo.ui.settings
 
+import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -245,9 +246,10 @@ class SettingsViewModel(
                 )
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
+                Log.w(TAG, "save failed", t)
                 _state.value = _state.value.copy(
                     isSaving = false,
-                    errorMessage = "保存失败：${t.message ?: "未知错误"}",
+                    errorMessage = "保存没成功，请稍后再试",
                 )
             }
         }
@@ -285,9 +287,10 @@ class SettingsViewModel(
                 }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
+                Log.w(TAG, "switch account failed", t)
                 _state.value = _state.value.copy(
                     isSwitchingAccount = false,
-                    errorMessage = "切换账号失败：${t.message ?: "未知错误"}",
+                    errorMessage = "切换账号没成功，请稍后再试",
                 )
             }
         }
@@ -338,9 +341,10 @@ class SettingsViewModel(
                 )
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
+                Log.w(TAG, "save AI config failed", t)
                 _state.value = _state.value.copy(
                     isSavingAi = false,
-                    errorMessage = "保存 AI 配置失败：${t.message ?: "未知错误"}",
+                    errorMessage = "AI 配置没保存上，请稍后再试",
                 )
             }
         }
@@ -439,8 +443,11 @@ class SettingsViewModel(
     private fun mapAiError(code: ErrorCode, message: String): String = when (code) {
         ErrorCode.NOT_CONFIGURED -> "请先保存 AI 配置再测试"
         ErrorCode.UNAUTHORIZED -> "鉴权失败，请检查 API Key"
-        ErrorCode.NETWORK -> "网络错误：$message"
-        else -> "测试失败：$message"
+        // 网络 / 未知错误：保留底层 message 原样透出，因为 AI 接口的 message
+        // 通常已经是服务端给出的 friendly 提示（如 "model not found"），
+        // 把它包成"网络问题"反而损失信息。
+        ErrorCode.NETWORK -> "连不上 AI 服务：$message"
+        else -> "测试没通过：$message"
     }
 
     private inline fun MutableStateFlow<SettingsUiState>.update(block: (SettingsUiState) -> SettingsUiState) {
@@ -448,6 +455,8 @@ class SettingsViewModel(
     }
 
     companion object {
+        private const val TAG = "SettingsViewModel"
+
         /**
          * GitHub PAT prefix taxonomy:
          *  - `ghp_` classic personal access token

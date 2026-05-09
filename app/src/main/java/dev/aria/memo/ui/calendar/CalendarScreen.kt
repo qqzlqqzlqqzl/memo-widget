@@ -40,6 +40,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -85,7 +86,7 @@ fun CalendarScreen(
     var editingEvent by remember { mutableStateOf<EventEntity?>(null) }
     // Fixes #22: bump per open so EventEditDialog's rememberSaveable keys don't collide
     // across back-to-back "new event" sessions (event?.uid is null in that case).
-    var dialogEpoch by remember { mutableStateOf(0) }
+    var dialogEpoch by remember { mutableIntStateOf(0) }
     val onEventClick: (EventOccurrence) -> Unit = remember {
         { occ ->
             editingEvent = occ.event

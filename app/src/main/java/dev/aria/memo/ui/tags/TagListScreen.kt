@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.aria.memo.data.tag.TagMatch
@@ -210,7 +211,7 @@ private fun TagRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onSelectTag(row.path) }
+            .clickable(role = Role.Button) { onSelectTag(row.path) }
             .padding(
                 start = (row.depth * 20).dp + MemoSpacing.sm,
                 end = MemoSpacing.sm,
@@ -223,7 +224,7 @@ private fun TagRow(
                 imageVector = if (row.isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                 contentDescription = if (row.isExpanded) "折叠" else "展开",
                 modifier = Modifier
-                    .clickable { onToggleExpand(row.path) }
+                    .clickable(role = Role.Button) { onToggleExpand(row.path) }
                     .padding(MemoSpacing.xs),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )

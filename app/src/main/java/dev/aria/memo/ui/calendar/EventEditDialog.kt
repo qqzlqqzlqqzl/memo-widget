@@ -32,6 +32,8 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -80,7 +82,7 @@ fun EventEditDialog(
 
     // Date can be edited via the DatePicker — store as epoch-day so
     // rememberSaveable handles it without a custom Saver.
-    var selectedEpochDay by rememberSaveable(saveKey) { mutableStateOf(baseDate.toEpochDay()) }
+    var selectedEpochDay by rememberSaveable(saveKey) { mutableLongStateOf(baseDate.toEpochDay()) }
     val selectedDate = LocalDate.ofEpochDay(selectedEpochDay)
 
     val (initialStartHour, initialStartMin) = remember(event) {
@@ -99,10 +101,10 @@ fun EventEditDialog(
     // null = not showing picker, true = start, false = end
     var editingStart by rememberSaveable(saveKey) { mutableStateOf<Boolean?>(null) }
     var showDatePicker by rememberSaveable(saveKey) { mutableStateOf(false) }
-    var startHour by rememberSaveable(saveKey) { mutableStateOf(initialStartHour) }
-    var startMin by rememberSaveable(saveKey) { mutableStateOf(initialStartMin) }
-    var endHour by rememberSaveable(saveKey) { mutableStateOf(initialEndHour) }
-    var endMin by rememberSaveable(saveKey) { mutableStateOf(initialEndMin) }
+    var startHour by rememberSaveable(saveKey) { mutableIntStateOf(initialStartHour) }
+    var startMin by rememberSaveable(saveKey) { mutableIntStateOf(initialStartMin) }
+    var endHour by rememberSaveable(saveKey) { mutableIntStateOf(initialEndHour) }
+    var endMin by rememberSaveable(saveKey) { mutableIntStateOf(initialEndMin) }
 
     // P4: simple RRULE picker — 不重复 / 每周 / 每月 / 自定义.
     val initialRrule = event?.rrule

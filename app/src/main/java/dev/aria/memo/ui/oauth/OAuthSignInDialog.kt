@@ -4,8 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
+import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -242,7 +242,7 @@ private fun openBrowser(ctx: Context, uri: String) {
         return
     }
     runCatching {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri)).apply {
+        val intent = Intent(Intent.ACTION_VIEW, uri.toUri()).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         ctx.startActivity(intent)

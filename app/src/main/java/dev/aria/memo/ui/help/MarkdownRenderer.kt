@@ -1,7 +1,7 @@
 package dev.aria.memo.ui.help
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -328,7 +328,7 @@ private fun InlineText(text: String) {
             onClick = { offset ->
                 annotated.getStringAnnotations("URL", offset, offset).firstOrNull()?.let { ann ->
                     runCatching {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ann.item)).apply {
+                        val intent = Intent(Intent.ACTION_VIEW, ann.item.toUri()).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         ctx.startActivity(intent)

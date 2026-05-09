@@ -330,9 +330,11 @@ fun SettingsScreen(
                         snackbarHostState.showSnackbar("没找到能接收文件的应用")
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
-                        snackbarHostState.showSnackbar(
-                            "导出日志失败：${e.message ?: e.javaClass.simpleName}"
-                        )
+                        // 不把 Java 类名 / 异常 message 透出给用户，会包含
+                        // 类似 java.io.IOException 这样的技术栈词汇。日志已落
+                        // adb logcat / crash dir 用于排查。
+                        android.util.Log.w("SettingsScreen", "log export failed", e)
+                        snackbarHostState.showSnackbar("导出日志没成功，请稍后再试")
                     }
                 }
             },

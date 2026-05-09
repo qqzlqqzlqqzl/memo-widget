@@ -1,5 +1,8 @@
+@file:SuppressLint("VisibleForTests")
+
 package dev.aria.memo.ui.edit
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.AbstractSavedStateViewModelFactory

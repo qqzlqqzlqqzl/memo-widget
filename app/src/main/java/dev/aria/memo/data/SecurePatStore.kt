@@ -2,6 +2,7 @@ package dev.aria.memo.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -31,11 +32,11 @@ class SecurePatStore(context: Context) {
     fun read(): String = prefs.getString(KEY_PAT, "").orEmpty()
 
     fun write(pat: String) {
-        prefs.edit().putString(KEY_PAT, pat).apply()
+        prefs.edit { putString(KEY_PAT, pat) }
     }
 
     fun clear() {
-        prefs.edit().remove(KEY_PAT).apply()
+        prefs.edit { remove(KEY_PAT) }
     }
 
     private companion object {
