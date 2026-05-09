@@ -11,6 +11,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Avoid stacking duplicate runs on the same ref. A 45-min android-instrumented
+# job piling on every quick consecutive push wastes runner minutes; cancel the
+# in-flight one when a fresh commit lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest

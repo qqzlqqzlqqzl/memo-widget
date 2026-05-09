@@ -1,0 +1,48 @@
+version: 2
+
+# Dependabot keeps GitHub Actions and Gradle dependencies up to date so we
+# don't accumulate CVE drift like the Glance 1.1.0 → 1.1.1 catch-up that
+# triggered P8.4. Weekly cadence to avoid PR noise; PRs land on Monday
+# morning local time.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - gradle
+    # Group related libraries so Dependabot doesn't open one PR per Compose
+    # artifact each release. Single PR per group is much easier to merge.
+    groups:
+      androidx-compose:
+        patterns:
+          - "androidx.compose*"
+      androidx-room:
+        patterns:
+          - "androidx.room*"
+      androidx-lifecycle:
+        patterns:
+          - "androidx.lifecycle*"
+      kotlinx:
+        patterns:
+          - "org.jetbrains.kotlinx*"
+      ktor:
+        patterns:
+          - "io.ktor*"
