@@ -10,7 +10,7 @@ HANDOFF.md — memo-widget Android app 的 AI 接手文档（AI-facing handoff�
 > 给下一个会话的机器可读上下文。下文出现的所有绝对路径、命令、标识符都是字面值。
 > 如果本文件与仓库实际状态冲突，以仓库为准 — 然后回来修这份文件。
 
-上次重新生成：**2026-04-24**，基于 `feature/p3-polish` 分支 P8 Widget 重做 + 自动刷新。当前 release：v0.12.21-p8（**2026-04-29 P8.1 closeout + P9-revisit + R8 install-failure 修复浪潮**：v0.12.2-p8 → v0.12.21-p8，detail 见 `CHANGELOG.md` 两条 entry；R8 修复涉及 Glance widget 子类 keep rules + release APK debug keystore 签名 + 设置→主题切换 + 设置→日志导出 / 崩溃栈持久化；P7 为 v0.11.0-p7；P6.1.1 为 v0.10.1-p6.1.1）。
+上次重新生成：**2026-05-09**，基于 `master` 分支 P8.4 30-bucket parallel review-driven fix wave。当前 release：v0.12.22-p8.4（**2026-05-09 P8.4 浪潮**：30 个 review subagent 找问题 / 30 个 fix subagent 在独立 worktree 并行修 / 一次合并到 master，跨 16 笔 commit 覆盖安全 + 路径 traversal + Glance CVE + R8 keep + Glance 生命周期 + Receiver/ANR + Worker/Sync 正确性 + UI 状态保留 + 文档 + a11y + perf + i18n widget toast + ICS RFC + tag normalize + calendar today-tick + CI dependabot/concurrency；详见 `CHANGELOG.md` 顶部 entry。前序：v0.12.21-p8 是 2026-04-29 P8.1 closeout + P9-revisit + R8 install-failure；P7 为 v0.11.0-p7；P6.1.1 为 v0.10.1-p6.1.1）。
 
 ## ✅ P8 已完成（Widget 重做 + 全链路自动刷新）
 
@@ -27,7 +27,7 @@ HANDOFF.md — memo-widget Android app 的 AI 接手文档（AI-facing handoff�
 5. **`ServiceLocator.appContext` 字段**：Repository 本身不持有 Context（DI 洁癖），通过 `ServiceLocator.appContext`（在 `init(context)` 里赋值 `context.applicationContext`）拿；所有 hook 点统一这种方式取 Context。
 6. **Debounce 250ms**：快速连续写入（比如批量 import / pull 大批新笔记）时，WidgetRefresher 的触发会被合并成一次 UI 更新，避免桌面闪烁。
 7. **BDD 扩展**（Agent 4 实施）：场景 #54-#80 新增 27 条（widget 自动刷新 10 条 + 列表展示 10 条 + 交互 7 条），总计约 **90 条** scenario（原 53 + 新增 ~27-37，以 BDD_SCENARIOS.md 实际数为准）。
-8. **版本**：versionCode 14 / versionName `0.12.1-p8`。测试 ≈240 项，详见 §6。
+8. **版本**：versionCode 35 / versionName `0.12.22-p8.4`。测试 **3223 项** unit test 全绿 + emulator BDD 9 scenario instrumented 全绿，详见 §6。
 
 
 
@@ -148,7 +148,7 @@ _待补（Agent 6 review 产出后填入）_
 
 | 字段 | 值 |
 |---|---|
-| 最近发布的 release | `v0.12.21-p8`（tag，2026-04-29；R8 install-fix + 主题切换 + 日志/崩溃导出） |
+| 最近发布的 release | `v0.12.22-p8.4`（master，2026-05-09；30-bucket parallel review-driven fix wave + #116 OAuth URL-encode 回归 + i18n widget toast + ICS RFC all-day + tag NFC normalize + calendar today-tick + CI dependabot/concurrency） |
 | Release 来源分支 | `feature/p3-polish`（tag 从这里打，**不是** `master`） |
 | 当前分支 | `feature/p3-polish` |
 | HEAD SHA | 见 `git rev-parse HEAD`（P8 Widget 重做收口提交） |
@@ -282,7 +282,7 @@ Package 根：`app/src/main/java/dev/aria/memo/`
 | P6.1 | `v0.10.0-p6.1` | **UI 大改版 + SingleNote UI 集成**：视觉升级（tertiary 色、LargeTopAppBar、Markdown 工具栏、MemoCard/MemoEmptyState/ScrollAwareFab 公共组件）、NoteListViewModel sum type 合并 legacy + single、EditViewModel 双路径、MemoWidget 先 single 后 legacy；数据层 `FrontMatterCodec` 抽离 + `PullBudget` 全局预算 + `NoteDao.observeRecent` LIMIT 下推 + `CalendarViewModel.mutating` 原子化 + `SingleNoteRepository` 补 PathLocker。 | #40–#59 |
 | P6.1.1 | `v0.10.1-p6.1.1` | deferred bug 清零：首装未配 PAT 写笔记不丢、`recentEntriesAcrossDays` LIMIT 下推、`EditViewModel` 分层归位。**CI/CD 首次引入**（`.github/workflows/ci.yml`）。BDD 扩场景 41-43。 | — |
 | P7 | `v0.11.0-p7` | **AI 问答集成**：data/ai（AiClient/AiSettingsStore/AiContextBuilder/AiDto，OpenAI-compatible，key 存 EncryptedSharedPreferences、FLAG_SECURE 扩展）+ ui/ai（AiChatScreen 含三段上下文切换 + AiChatViewModel 多轮 transcript ephemeral） + NoteListScreen `Psychology` 图标入口 + SingleNoteRow 长按 "问 AI" DropdownMenu 带 noteUid 深链。**Review 闭环**：1 High + 10 Medium + 5 Low（issue #60–#75），修到零 open。**220 unit test** / 0 failed（23 test 文件）。BDD 扩场景 44-53。 | #60–#75 |
-| **P8** | `v0.12.1-p8`（当前） | **Widget 重做 + 自动刷新 + 12 reviewer 对抗审计 + 8 fix wave**：MemoWidget 3×3 默认 + **最近 20 条可滚动列表** + 🔄 刷新按钮 + Toast 反馈；`WidgetRefresher` 用 MutableSharedFlow + Flow.debounce(400ms) 接通 10 hook；Data-1 R4/R8/R11/R12/R13 数据完整性；Sec-1 toString redact + FLAG_SECURE + exported=false；Perf-1 SettingsStore flowOn(IO) + Application 异步 enqueue + MemoWidget withTimeoutOrNull 保护；UX: 单笔记删除入口 + BackHandler 草稿确认 + rememberSaveable listState + PushWorker retry 保留 lastError；Arch: ServiceLocator 双 API 统一（@Deprecated）+ MarkdownPreview helper 抽取 + 删未用依赖；Dep: compileSdk/targetSdk 35→36；BDD 1090 条；≈240 unit test 全绿；CI 加 android-lint / android-release-smoke 两个独立 job。**127 P8.1 延后 issue 已登记**（#87-#333 区间）。 | #333（PR）/ W-1~W-5 |
+| **P8** | `v0.12.1-p8`（当前） | **Widget 重做 + 自动刷新 + 12 reviewer 对抗审计 + 8 fix wave**：MemoWidget 3×3 默认 + **最近 20 条可滚动列表** + 🔄 刷新按钮 + Toast 反馈；`WidgetRefresher` 用 MutableSharedFlow + Flow.debounce(400ms) 接通 10 hook；Data-1 R4/R8/R11/R12/R13 数据完整性；Sec-1 toString redact + FLAG_SECURE + exported=false；Perf-1 SettingsStore flowOn(IO) + Application 异步 enqueue + MemoWidget withTimeoutOrNull 保护；UX: 单笔记删除入口 + BackHandler 草稿确认 + rememberSaveable listState + PushWorker retry 保留 lastError；Arch: ServiceLocator 双 API 统一（@Deprecated）+ MarkdownPreview helper 抽取 + 删未用依赖；Dep: compileSdk/targetSdk 35→36；BDD 1090 条；3223 unit test 全绿；CI 加 android-lint / android-release-smoke 两个独立 job。**127 P8.1 延后 issue 已登记**（#87-#333 区间）。 | #333（PR）/ W-1~W-5 |
 
 ---
 
@@ -318,7 +318,7 @@ Package 根：`app/src/main/java/dev/aria/memo/`
 | `data/widget/WidgetRefresherTest.kt` | — | **P8 新增**：`refreshAllNow` 调 MemoWidget.updateAll + TodayWidget.updateAll / runCatching 吃 GlanceId not found / 异常不传播 / SupervisorJob 子 job 失败不杀 scope |
 | `data/SingleNoteRepositoryHookTest.kt` | — | **P8 新增**（或归并进 `SingleNoteRepositoryTest.kt`）：create / update / delete / togglePin 成功路径末尾调 WidgetRefresher（verify fake recorder）|
 | `data/sync/PullWorkerRefreshTest.kt` / `PushWorkerRefreshTest.kt` | — | **P8 新增**（如添加）：doWork `Result.success` 前调 WidgetRefresher |
-| **合计** | **≈240** | （以 gradle 实际跑结果为准：`./gradlew :app:testDebugUnitTest`；P7 基线 220 + P8 新增约 20）|
+| **合计** | **3223** | （以 gradle 实际跑结果为准：`./gradlew :app:testDebugUnitTest`；P7 基线 220 + P8 新增约 20）|
 
 还没有 instrumented（`androidTest`）用例 — 加一个需要模拟器，见 §9。P6.2 TODO 里第 2 项是 Room MigrationTestHelper 的 instrumented 迁移链测试。
 
@@ -340,7 +340,7 @@ Package 根：`app/src/main/java/dev/aria/memo/`
 ### 测试 + lint
 
 ```bash
-./gradlew :app:testDebugUnitTest                                                    # 全部 ≈240
+./gradlew :app:testDebugUnitTest                                                    # 全部 3223
 ./gradlew :app:testDebugUnitTest --tests "dev.aria.memo.data.ics.IcsCodecTest"      # 单个 class
 ./gradlew :app:testDebugUnitTest --tests "dev.aria.memo.data.tag.*"                 # 单个 package
 ./gradlew :app:lintDebug                                                            # 报告在 app/build/reports/lint-results-debug.html
@@ -443,7 +443,7 @@ P6.1 release 之后，工作树应为 **CLEAN**（`git status --porcelain` 应�
 
 ### 建议的下一个会话入口
 
-1. `./gradlew :app:testDebugUnitTest` → 确认工作树下 **≈240** 项测试全部过。
+1. `./gradlew :app:testDebugUnitTest` → 确认工作树下 **3223** 项测试全部过。
 2. `git diff HEAD` → 每个 hunk 对照 §3 不变量复核（尤其 migration、索引、通知生命周期）。
 3. 按特性拆 commit（一特性一个，不要一个大 squash）：
    - `feat(p4.3): pin notes with front-matter round-trip + schema v7`
@@ -483,8 +483,8 @@ P6.1 release 之后，工作树应为 **CLEAN**（`git status --porcelain` 应�
 cd /Users/aria-score-00/AndroidProjects/memo-widget
 git rev-parse HEAD                                         # 期望 P8 release commit 或更新
 git status --porcelain                                     # 期望 CLEAN（P8 release 后）
-./gradlew :app:testDebugUnitTest --rerun-tasks             # 期望：≈240 过，0 失败
-gh release list --limit 3                                  # 榜首：v0.12.21-p8
+./gradlew :app:testDebugUnitTest --rerun-tasks             # 期望：3223 过，0 失败
+gh release list --limit 3                                  # 榜首：v0.12.22-p8.4
 gh issue list --state open --limit 20                      # 期望：0 open
 gh api rate_limit --jq .resources.core                     # 跑 gh 循环前先看余量
 ```
