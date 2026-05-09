@@ -1,6 +1,8 @@
 package dev.aria.memo.ui.edit
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -56,7 +58,10 @@ class ReadModeNoteUiTest {
                 )
             }
         }
-        compose.onNodeWithText("写测试").performClick()
+        // ChecklistRow 的 Row 用 mergeDescendants + role=Checkbox 提供
+        // 语义合并；点 Text 节点不会传到 Checkbox 的 onCheckedChange。
+        // 用 isToggleable() 直接定位 Checkbox 的 toggle action 节点。
+        compose.onNode(isToggleable() and hasText("写测试")).performClick()
         assertEquals(0, lastIdx)
         assertEquals("- [ ] 写测试", lastRaw)
         assertEquals(true, lastNew)
@@ -73,7 +78,7 @@ class ReadModeNoteUiTest {
                 )
             }
         }
-        compose.onNodeWithText("完成的事").performClick()
+        compose.onNode(isToggleable() and hasText("完成的事")).performClick()
         assertEquals(false, lastNew)
     }
 }
