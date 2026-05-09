@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -155,10 +155,10 @@ fun AiChatScreen(
                         .fillMaxWidth()
                         .padding(horizontal = MemoSpacing.lg),
                 ) {
-                    items(
+                    itemsIndexed(
                         items = state.messages,
-                        key = { msg -> "${msg.timestamp}-${msg.role}-${msg.content.hashCode()}" },
-                    ) { msg ->
+                        key = { idx, msg -> "$idx-${msg.timestamp}" },
+                    ) { _, msg ->
                         ChatMessageBubble(role = msg.role, content = msg.content)
                     }
                 }

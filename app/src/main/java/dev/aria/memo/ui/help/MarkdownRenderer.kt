@@ -261,7 +261,7 @@ fun LazyRenderMarkdown(
     ) {
         items(
             count = blocks.size,
-            key = { idx -> "${idx}-${blocks[idx].hashCode()}" },
+            key = { idx -> idx },
         ) { idx ->
             RenderBlock(blocks[idx])
         }

@@ -17,6 +17,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -75,7 +79,7 @@ fun ReadModeNote(
     onToggle: (lineIndex: Int, rawLine: String, newChecked: Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val lines = body.split("\n")
+    val lines = remember(body) { body.split("\n") }
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -122,8 +126,14 @@ private fun ChecklistRow(
             onToggle(newChecked)
         }
     }
+    val checkedStateDesc = if (line.checked) "已勾选" else "未勾选"
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                role = Role.Checkbox
+                stateDescription = checkedStateDesc
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (line.indent > 0) {

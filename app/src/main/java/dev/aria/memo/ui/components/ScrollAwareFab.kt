@@ -31,7 +31,12 @@ fun ScrollAwareFab(
     ExtendedFloatingActionButton(
         onClick = onClick,
         expanded = expanded,
-        icon = { Icon(imageVector = icon, contentDescription = null) },
+        icon = {
+            Icon(
+                imageVector = icon,
+                contentDescription = text.ifBlank { "Action" },
+            )
+        },
         text = { Text(text) },
         modifier = modifier,
     )

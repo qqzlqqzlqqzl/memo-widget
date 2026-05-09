@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -84,9 +86,11 @@ fun CalendarScreen(
     // Fixes #22: bump per open so EventEditDialog's rememberSaveable keys don't collide
     // across back-to-back "new event" sessions (event?.uid is null in that case).
     var dialogEpoch by remember { mutableStateOf(0) }
-    val onEventClick: (EventOccurrence) -> Unit = { occ ->
-        editingEvent = occ.event
-        dialogEpoch += 1
+    val onEventClick: (EventOccurrence) -> Unit = remember {
+        { occ ->
+            editingEvent = occ.event
+            dialogEpoch += 1
+        }
     }
 
     val currentMonth = remember { YearMonth.now() }
@@ -282,7 +286,10 @@ private fun DayCell(
             .clip(CircleShape)
             .background(bgColor)
             .clickable(enabled = inMonth) { onClick() }
-            .semantics { contentDescription = cellLabel },
+            .semantics {
+                contentDescription = cellLabel
+                role = Role.Button
+            },
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

@@ -569,7 +569,7 @@ private fun SingleNoteRow(
             if (note.dirty) {
                 Icon(
                     imageVector = Icons.Filled.CloudOff,
-                    contentDescription = "未同步",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.size(16.dp),
                 )
