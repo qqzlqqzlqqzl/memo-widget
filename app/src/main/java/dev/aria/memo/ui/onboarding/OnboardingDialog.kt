@@ -52,8 +52,8 @@ private val SLIDES = listOf(
     ),
     OnboardingSlide(
         icon = Icons.Filled.Lock,
-        title = "用一枚 GitHub PAT 登录",
-        body = "需要给 app 一枚 Personal Access Token，权限范围只要 repo 读写就够了。我们把它加密保存在本机；如果换设备，重新填一次即可。",
+        title = "用 GitHub 账号登录",
+        body = "可以一键扫码登录（OAuth Device Flow），也可以粘贴一枚 Personal Access Token。无论哪种，凭证都加密保存在本机，不会上传到第三方。",
     ),
     OnboardingSlide(
         icon = Icons.Filled.Settings,

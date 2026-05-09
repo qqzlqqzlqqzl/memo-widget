@@ -87,6 +87,10 @@ fun NoteListScreen(
     // deep-link into the AI chat with the current note pinned as context.
     // Keyword default = null preserves the tab-level entry (no note selected).
     onOpenAiChat: (noteUid: String?) -> Unit = {},
+    // Fix-X1 follow-up: SyncBanner needs a way to send the user to the
+    // Settings tab when PAT auth fails. AppNav owns the NavController so
+    // the host wires this; default is a no-op for screens used in tests.
+    onOpenSettings: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     // Fixes #11: surface sync failures so the user knows when pushes stop landing.
@@ -164,7 +168,14 @@ fun NoteListScreen(
                 isOnline = state.isOnline,
                 dirtyCount = state.dirtyCount,
             )
-            SyncBanner(status = syncStatus, onDismiss = { SyncStatusBus.clearError() })
+            SyncBanner(
+                status = syncStatus,
+                onDismiss = { SyncStatusBus.clearError() },
+                onOpenSettings = {
+                    SyncStatusBus.clearError()
+                    onOpenSettings()
+                },
+            )
             NoteListBody(
                 state = state,
                 query = query,
@@ -237,7 +248,11 @@ fun NoteListScreen(
 private data class PendingDelete(val uid: String, val title: String)
 
 @Composable
-private fun SyncBanner(status: SyncStatus, onDismiss: () -> Unit) {
+private fun SyncBanner(
+    status: SyncStatus,
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     val err = status as? SyncStatus.Error ?: return
     Surface(
         color = MaterialTheme.colorScheme.errorContainer,
@@ -273,6 +288,13 @@ private fun SyncBanner(status: SyncStatus, onDismiss: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
+            // Fix-X1 follow-up: 凭证类错误（认证失败 / 没配置）给一键跳设置的
+            // 入口。其他类型的错误用户没法直接行动，只显示"知道了"。
+            if (err.code == ErrorCode.UNAUTHORIZED || err.code == ErrorCode.NOT_CONFIGURED) {
+                TextButton(onClick = onOpenSettings) {
+                    Text("去设置", color = MaterialTheme.colorScheme.onErrorContainer)
+                }
+            }
             TextButton(onClick = onDismiss) {
                 Text("知道了", color = MaterialTheme.colorScheme.onErrorContainer)
             }

@@ -151,6 +151,17 @@ fun AppNav(onOpenEditor: () -> Unit) {
                                 else "ai_chat"
                             )
                         },
+                        // Fix-X1 follow-up: SyncBanner 在 UNAUTHORIZED 时
+                        // 显示"去设置"按钮，一键跳到 Settings tab 让用户能直接
+                        // 改 PAT。原来的 banner 只有"知道了"——用户得自己摸到
+                        // 底栏 Settings 才能修，路径不对称。
+                        onOpenSettings = {
+                            nav.navigate(Tab.Settings.route) {
+                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
                         modifier = Modifier.padding(padding),
                     )
                 }
