@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -148,6 +149,16 @@ fun CalendarScreen(
                             )
                         }
                     }) { Icon(Icons.Filled.ChevronRight, contentDescription = "下一月") }
+                    // 跳回"今天"——用户翻到几个月之外时不用一格一格按回来。
+                    // Material 标准做法，主流日历 app（Google Calendar / iOS
+                    // Calendar）都把它放在右上 actions。
+                    IconButton(onClick = {
+                        scrollJob?.cancel()
+                        scrollJob = scope.launch {
+                            calendarState.animateScrollToMonth(YearMonth.now())
+                        }
+                        viewModel.selectDate(LocalDate.now())
+                    }) { Icon(Icons.Filled.Today, contentDescription = "回到今天") }
                 },
                 scrollBehavior = scrollBehavior,
             )

@@ -192,7 +192,12 @@ fun EditScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("写点什么") },
+                    // 标题语义对齐操作模式：传入 onDelete 说明这是已存在的笔记,
+                    // 用户在做"编辑"；为 null 则是新建。原来的"写点什么"读起来
+                    // 更像 hint，跟 placeholder 重复。
+                    title = {
+                        Text(if (onDelete != null) "编辑笔记" else "新建笔记")
+                    },
                     navigationIcon = {
                         IconButton(onClick = {
                             // Honor the same "unsaved check" for the back arrow
