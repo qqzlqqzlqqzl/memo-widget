@@ -169,6 +169,19 @@ object TagIndexer {
         return out
     }
 
+    /**
+     * Casefold a tag segment (or the whole tag) for equality comparisons.
+     * Uses Unicode NFC followed by `lowercase()` so that `#Work` / `#work` /
+     * `#WORK` all collapse, and so that pre/decomposed accented characters
+     * (`café` typed two different ways) match. Display name preservation
+     * (the original casing the user typed first) is handled separately by
+     * the `MutableNode(seg)` constructor — `installMatch` keeps the first
+     * encountered segment as the displayed name and only uses the
+     * normalized form as the children-map key.
+     */
+    private fun normalizeKey(s: String): String =
+        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFC).lowercase()
+
     /** Run [TAG_REGEX] over a single body, dedupe within the body. */
     private fun extractFromBody(body: String, date: LocalDate, time: LocalTime): List<RawMatch> {
         if ('#' !in body) return emptyList()
@@ -176,7 +189,9 @@ object TagIndexer {
         val out = ArrayList<RawMatch>()
         for (match in TAG_REGEX.findAll(body)) {
             val full = match.groupValues[1]
-            if (!seen.add(full)) continue
+            // Dedupe by normalized form so `#Work` and `#work` in the same
+            // body don't both fire — they're conceptually the same tag.
+            if (!seen.add(normalizeKey(full))) continue
             out += RawMatch(full = full, date = date, time = time, body = body)
         }
         return out
@@ -187,7 +202,12 @@ object TagIndexer {
         if (segments.isEmpty()) return
         var node = root
         for (seg in segments) {
-            node = node.children.getOrPut(seg) { MutableNode(seg) }
+            // Use the normalized form as the children-map key so that
+            // case/accent variants of the same segment land on the same
+            // tree node. The MutableNode keeps the first-seen original
+            // segment as its displayed `name`, so the UI still renders
+            // whatever casing the user typed first.
+            node = node.children.getOrPut(normalizeKey(seg)) { MutableNode(seg) }
         }
         node.entries += TagMatch(date = m.date, time = m.time, body = m.body)
     }
