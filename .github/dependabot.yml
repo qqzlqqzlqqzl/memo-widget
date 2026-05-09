@@ -46,3 +46,12 @@ updates:
       ktor:
         patterns:
           - "io.ktor*"
+    # KSP version is suffixed by the Kotlin version (`<kotlin>-<ksp>`). It
+    # must move in lockstep with Kotlin — bumping KSP independently breaks
+    # the build with "KSP plugin requires Kotlin X". Dependabot doesn't
+    # understand this coupling, so PRs like #366 / #369 keep appearing for
+    # KSP 2.3.x while Kotlin is still 2.0.21. Ignore standalone KSP bumps;
+    # we'll roll it together with Kotlin in the next major upgrade wave.
+    ignore:
+      - dependency-name: "com.google.devtools.ksp"
+      - dependency-name: "com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin"
