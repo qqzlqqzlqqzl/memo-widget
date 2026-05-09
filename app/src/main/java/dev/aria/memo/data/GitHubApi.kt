@@ -103,7 +103,14 @@ class GitHubApi(private val httpClient: HttpClient) {
                 setBody(request)
             }
             when (response.status.value) {
-                in 200..299 -> MemoResult.Ok(Unit)
+                // P8.4 (B12 follow-up): carry X-RateLimit-Remaining on DELETE
+                // success too. PullWorker doesn't read it (PushWorker owns
+                // DELETE), but the field is uniform across all Ok results so
+                // any future caller doesn't have to special-case verbs.
+                in 200..299 -> MemoResult.Ok(
+                    value = Unit,
+                    rateLimitRemaining = response.headers["X-RateLimit-Remaining"]?.toIntOrNull(),
+                )
                 404 -> MemoResult.Err(ErrorCode.NOT_FOUND, "file not found")
                 401, 403 -> rateLimitedOrAuthError(response, "DELETE")
                 409, 422 -> MemoResult.Err(ErrorCode.CONFLICT, "sha conflict on DELETE")
@@ -118,7 +125,16 @@ class GitHubApi(private val httpClient: HttpClient) {
         response: HttpResponse,
         body: () -> T,
     ): MemoResult<T> = when (response.status.value) {
-        in 200..299 -> MemoResult.Ok(body())
+        // P8.4 (B12 follow-up): propagate X-RateLimit-Remaining into Ok so
+        // PullWorker can tighten the per-cycle PullBudget mid-pull instead
+        // of marching past GitHub's actual quota. Header is parsed leniently:
+        // missing / non-numeric values become null and the budget stays at
+        // the static default. PUT/DELETE responses also carry the header, so
+        // we read it uniformly here rather than splitting GET vs write paths.
+        in 200..299 -> MemoResult.Ok(
+            value = body(),
+            rateLimitRemaining = response.headers["X-RateLimit-Remaining"]?.toIntOrNull(),
+        )
         404 -> MemoResult.Err(ErrorCode.NOT_FOUND, "not found")
         401, 403 -> rateLimitedOrAuthError(response, response.status.value.toString())
         409, 422 -> MemoResult.Err(ErrorCode.CONFLICT, "sha conflict")

@@ -62,8 +62,18 @@ class PullBudget(cap: Int = DEFAULT_CAP) {
      */
     fun tightenFromHeader(remainingHeader: String?) {
         val advertised = remainingHeader?.toIntOrNull() ?: return
-        if (advertised < 0) return
-        val targetCap = used.get() + advertised
+        tightenFromHeader(advertised)
+    }
+
+    /**
+     * Int overload for callers that already parsed the header (e.g.
+     * `MemoResult.Ok.rateLimitRemaining` carries an Int? not a String). Same
+     * semantics as the String? overload — negative values are ignored, and
+     * the cap is only ratcheted DOWN, never up.
+     */
+    fun tightenFromHeader(remaining: Int) {
+        if (remaining < 0) return
+        val targetCap = used.get() + remaining
         while (true) {
             val current = capRef.get()
             if (targetCap >= current) return

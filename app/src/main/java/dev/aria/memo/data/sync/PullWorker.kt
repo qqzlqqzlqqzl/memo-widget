@@ -54,6 +54,11 @@ class PullWorker(
         // 修法:在 worker 入口调一次根 listDir,根 404 → 强信号 repo 不存在 →
         // emit Error(NOT_FOUND) + return success (避免无意义重试)。子目录 404 仍 OK
         // (用户 repo 只是还没创建 notes/events/ 子目录)。
+        //
+        // P8.4: also capture the probe's rate-limit reading so the budget
+        // (constructed below) can be tightened immediately — saves one stale
+        // pull cycle on an unauthenticated 60/h client that's already at 5/60.
+        val probeRateLimit: Int?
         when (val probe = api.listDir(config, "")) {
             is MemoResult.Err -> when (probe.code) {
                 ErrorCode.NOT_FOUND -> {
@@ -69,9 +74,15 @@ class PullWorker(
                     SyncStatusBus.emit(SyncStatus.Error(ErrorCode.UNAUTHORIZED, "GitHub 拒绝访问"))
                     return Result.success()
                 }
-                else -> Unit // network / other transient errors fall through to normal pull
+                else -> {
+                    probeRateLimit = null
+                    // network / other transient errors fall through to normal pull
+                }
             }
-            is MemoResult.Ok -> Unit // repo exists, proceed
+            is MemoResult.Ok -> {
+                probeRateLimit = probe.rateLimitRemaining
+                // repo exists, proceed
+            }
         }
 
         var anyNetwork = false
@@ -85,15 +96,15 @@ class PullWorker(
         // P6.1 第 6 项：全局 pull 预算，四段共享。旧逻辑三段各自 50/50/50 封顶，
         // 最坏情况合计 164 次 API call，登录 PAT 用户 5000/h 虽够但 secondary
         // rate-limit 仍可能被触发。150 上限保证单轮不爆表。
+        //
+        // P8.4 (B12 follow-up): MemoResult.Ok now carries rateLimitRemaining
+        // from the GitHub response. Each successful getFile / listDir call
+        // funnels its value through budget.tightenFromHeader(...) so an
+        // unauthenticated 60/h client ratchets the cap down to whatever
+        // GitHub last advertised instead of marching past the real quota
+        // and burning the rest of the cycle on 403s.
         val budget = PullBudget()
-        // TODO: tighten when GitHubApi exposes rate-limit headers (see B06).
-        // PullBudget.tightenFromHeader(X-RateLimit-Remaining) is dead code
-        // until MemoResult.Ok carries the raw HttpResponse headers. Currently
-        // GitHubApi consumes the HttpResponse internally and only returns the
-        // deserialized body, so PullWorker cannot read X-RateLimit-Remaining
-        // without a GitHubApi refactor. Track in B06: expose headers from
-        // MemoResult.Ok so callers can call budget.tightenFromHeader(header)
-        // after each api.getFile / api.listDir call.
+        if (probeRateLimit != null) budget.tightenFromHeader(probeRateLimit)
 
         // --- notes ---------------------------------------------------------
         // Fixes #5: when the local cache is empty, list the repo root and pull
@@ -119,6 +130,9 @@ class PullWorker(
             if (!budget.consume()) { anyNetwork = true; break }
             when (val res = api.getFile(config, path)) {
                 is MemoResult.Ok -> {
+                    // P8.4: tighten budget from each successful response so an
+                    // unauth 60/h client doesn't keep firing past its quota.
+                    res.rateLimitRemaining?.let { budget.tightenFromHeader(it) }
                     if (local != null && local.githubSha == res.value.sha) continue
                     val text = runCatching { res.value.decodedContent }.getOrNull() ?: continue
                     val nowMs = System.currentTimeMillis()
@@ -153,6 +167,8 @@ class PullWorker(
             anyNetwork = true
         } else when (val res = api.listDir(config, "events")) {
             is MemoResult.Ok -> {
+                // P8.4: tighten budget from this listDir's rate-limit header.
+                res.rateLimitRemaining?.let { budget.tightenFromHeader(it) }
                 val remote = res.value.filter { it.type == "file" && it.name.endsWith(".ics") }
                 val remotePaths = remote.map { it.path }.toSet()
                 // Pull new / changed. Fixes #2: locate by filePath (unique index),
@@ -175,6 +191,8 @@ class PullWorker(
                     if (!budget.consume()) { anyNetwork = true; break }
                     when (val fileRes = api.getFile(config, item.path)) {
                         is MemoResult.Ok -> {
+                            // P8.4: tighten budget per event-file fetch.
+                            fileRes.rateLimitRemaining?.let { budget.tightenFromHeader(it) }
                             val text = runCatching { fileRes.value.decodedContent }.getOrNull() ?: continue
                             val nowMs = System.currentTimeMillis()
                             val decoded = IcsCodec.decode(text, item.path, item.sha, nowMs) ?: continue
@@ -255,6 +273,8 @@ class PullWorker(
             anyNetwork = true
         } else when (val res = api.listDir(config, "notes")) {
             is MemoResult.Ok -> {
+                // P8.4: tighten budget from this listDir's rate-limit header.
+                res.rateLimitRemaining?.let { budget.tightenFromHeader(it) }
                 val remote = res.value.filter { it.type == "file" && it.name.endsWith(".md") }
                 val remotePaths = remote.map { it.path }.toSet()
                 for (item in remote) {
@@ -271,6 +291,8 @@ class PullWorker(
                     if (!budget.consume()) { anyNetwork = true; break }
                     when (val fileRes = api.getFile(config, item.path)) {
                         is MemoResult.Ok -> {
+                            // P8.4: tighten budget per single-note fetch.
+                            fileRes.rateLimitRemaining?.let { budget.tightenFromHeader(it) }
                             val text = runCatching { fileRes.value.decodedContent }
                                 .getOrNull() ?: continue
                             val nowMs = System.currentTimeMillis()
@@ -407,7 +429,11 @@ class PullWorker(
         // The listDir itself costs 1 budget unit.
         if (!budget.consume()) return true
         val root = when (val res = api.listDir(config, "")) {
-            is MemoResult.Ok -> res.value
+            is MemoResult.Ok -> {
+                // P8.4: tighten budget from bootstrap listDir's response.
+                res.rateLimitRemaining?.let { budget.tightenFromHeader(it) }
+                res.value
+            }
             is MemoResult.Err -> {
                 if (res.code == ErrorCode.NETWORK) anyNetwork = true
                 return anyNetwork
@@ -420,6 +446,8 @@ class PullWorker(
             if (!budget.consume()) { anyNetwork = true; break }
             when (val res = api.getFile(config, item.path)) {
                 is MemoResult.Ok -> {
+                    // P8.4: tighten budget per bootstrap day-file fetch.
+                    res.rateLimitRemaining?.let { budget.tightenFromHeader(it) }
                     val text = runCatching { res.value.decodedContent }.getOrNull() ?: continue
                     val nowMs = System.currentTimeMillis()
                     dao.upsert(

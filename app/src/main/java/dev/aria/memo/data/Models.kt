@@ -102,9 +102,21 @@ data class DatedMemoEntry(
  * Layers below the UI MUST NOT throw — they return [MemoResult] so callers can
  * render error states without try/catch. See AGENT_SPEC.md section 2.4 and
  * rule 4 in section 7.
+ *
+ * P8.4 (B12 follow-up): [Ok.rateLimitRemaining] optionally carries the
+ * `X-RateLimit-Remaining` value from the originating GitHub HTTP response.
+ * It is `null` when the result was synthesised locally (repos, fakes, tests)
+ * or when the response had no such header. `PullWorker` feeds this into
+ * `PullBudget.tightenFromHeader(...)` so an unauthenticated 60/h client
+ * doesn't blow through its quota in one pull cycle. Default is `null` so
+ * every existing positional call-site (`MemoResult.Ok(value)`) continues to
+ * compile unchanged.
  */
 sealed class MemoResult<out T> {
-    data class Ok<T>(val value: T) : MemoResult<T>()
+    data class Ok<T>(
+        val value: T,
+        val rateLimitRemaining: Int? = null,
+    ) : MemoResult<T>()
     data class Err(val code: ErrorCode, val message: String) : MemoResult<Nothing>()
 }
 
