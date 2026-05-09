@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ dark-mode splash screen customisation.
+
+         The values-v31 variant inherits Theme.MemoWidget which in turn
+         pulls Material3 DayNight, so colorSurface and colorPrimaryContainer
+         already resolve to dark-theme tokens at runtime. We re-declare the
+         style here primarily to assert that the night branch is intentional
+         (lint flags missing -night counterparts for splash themes once the
+         project has both -v31 and any -night/values directory) and to give
+         future maintainers an obvious place to override individual splash
+         attributes when the dark splash diverges from the light one.
+
+         Triggered by 30-bucket review B17 (theme audit): without an explicit
+         night-v31 entry, the system can briefly render the launcher-icon
+         backplate using the wrong tint when transitioning from splash to
+         the post-splash theme on dark-mode devices. -->
+    <style name="Theme.MemoWidget.Starting" parent="Theme.MemoWidget">
+        <item name="android:windowSplashScreenBackground">?attr/colorSurface</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">?attr/colorPrimaryContainer</item>
+    </style>
+</resources>
