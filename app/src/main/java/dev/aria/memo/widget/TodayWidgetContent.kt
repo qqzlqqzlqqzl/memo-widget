@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import dev.aria.memo.R
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceId
@@ -60,12 +61,12 @@ class ToastingRefreshTodayAction : ActionCallback {
     ) {
         val appCtx = context.applicationContext
         Handler(Looper.getMainLooper()).post {
-            Toast.makeText(appCtx, "正在刷新…", Toast.LENGTH_SHORT).show()
+            Toast.makeText(appCtx, appCtx.getString(R.string.widget_refreshing), Toast.LENGTH_SHORT).show()
         }
         runCatching { TodayWidget().updateAll(appCtx) }
             .onFailure {
                 Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(appCtx, "刷新失败，请检查网络", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(appCtx, appCtx.getString(R.string.widget_refresh_failed), Toast.LENGTH_SHORT).show()
                 }
             }
     }

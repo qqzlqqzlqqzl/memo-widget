@@ -23,6 +23,9 @@
     <string name="widget_not_configured">先打开 app 配置</string>
     <!-- P8：手动刷新按钮的无障碍描述（talkback 会读出来） -->
     <string name="widget_refresh">刷新</string>
+    <!-- P8.4 #i18n-1: refresh-action toast feedback -->
+    <string name="widget_refreshing">正在刷新…</string>
+    <string name="widget_refresh_failed">刷新失败，请检查网络</string>
 
     <!-- Widget · 今日清单 (4x2) -->
     <string name="today_widget_label">今日</string>
