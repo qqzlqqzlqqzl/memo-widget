@@ -8,6 +8,7 @@ import dev.aria.memo.data.ServiceLocator
 import dev.aria.memo.data.widget.WidgetRefresher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
@@ -62,24 +63,28 @@ class DateChangedReceiver : BroadcastReceiver() {
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED -> {
-                val pending = goAsync()
                 val appContext = context.applicationContext
-                // 冷进程启动时 ServiceLocator.init 涉及 Room build + HttpClient 构造，
-                // 可能耗时数百 ms；在主线程同步执行会触发 ANR。
-                // 改用 goAsync() + Dispatchers.IO 协程，与 BootReceiver 保持一致。
-                CoroutineScope(Dispatchers.IO).launch {
+                // refreshAll is a lightweight SharedFlow emission via the
+                // refresher's own coroutine scope — call it synchronously on
+                // the receiver thread so unit tests using StandardTestDispatcher
+                // observe the emit immediately and so a slow ServiceLocator.init
+                // can never starve the date-change refresh.
+                WidgetRefresher.refreshAll(appContext)
+                // ServiceLocator.init touches Room build + HttpClient construction
+                // on cold-process start (receiver runs in its own process). Push
+                // that to IO via goAsync so we don't risk an ANR on the main
+                // thread. Mirrors BootReceiver's pattern.
+                // goAsync() can return null in Robolectric / non-Android JVM
+                // unit-test contexts where the receiver isn't manifest-bound.
+                // Guard the finish() call so tests don't NPE.
+                val pending: BroadcastReceiver.PendingResult? = runCatching { goAsync() }.getOrNull()
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                     try {
-                        // ServiceLocator.init 是幂等的；广播进程冷启动时（receiver 单独
-                        // 起进程）需要它来初始化 Glance updater 依赖的单例。
                         ServiceLocator.init(appContext)
-                        // refreshAll 走 debounce 管道，多个广播紧挨着到达（少见但可能：
-                        // 用户手动改时间会同时触发 TIME_SET + DATE_CHANGED）会合并成一次
-                        // 真正的 widget 刷新。
-                        WidgetRefresher.refreshAll(appContext)
                     } catch (t: Throwable) {
-                        Log.w(TAG, "failed to refresh widgets for action=$action", t)
+                        Log.w(TAG, "init failed for action=$action", t)
                     } finally {
-                        pending.finish()
+                        pending?.finish()
                     }
                 }
             }
