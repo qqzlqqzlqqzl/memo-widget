@@ -67,9 +67,13 @@ updates:
       # config / MockEngine). Migration deferred to next wave.
       - dependency-name: "io.ktor:*"
         update-types: ["version-update:semver-major"]
-      # kotlinx-serialization 1.8+ and kotlinx-coroutines 2.0 are pinned by
-      # downstream deps (Room compatibility above). Major bumps deferred.
+      # kotlinx-serialization 1.8+ and kotlinx-coroutines 1.11+ both ship
+      # binaries compiled against Kotlin 2.2 (verified via #373:
+      # "Module was compiled with an incompatible version of Kotlin.
+      # The binary version of its metadata is 2.2.0, expected version
+      # is 2.0.0"). Pin to patch-only within the current minor until
+      # the Kotlin major bump.
       - dependency-name: "org.jetbrains.kotlinx:kotlinx-serialization*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "org.jetbrains.kotlinx:kotlinx-coroutines*"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
