@@ -1,5 +1,5 @@
 [versions]
-agp = "8.7.3"
+agp = "9.2.1"
 # Kotlin patch bump 2.0.10 → 2.0.21 (P9-revisit dep wave, conservative
 # patch-only upgrade). KSP version-locked to Kotlin via the
 # `<kotlin>-<ksp>` suffix; bump to the matching 2.0.21-1.0.28.
