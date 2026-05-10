@@ -310,7 +310,10 @@ private fun NoteListBody(
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
-            label = { Text("搜索笔记") },
+            // 之前用 label = "搜索笔记", 输入时 label 上浮成 ~12sp 标签卡在
+            // 框内顶部, 既占高度又显得过期。一个搜索框需要的就是放大镜 +
+            // 占位提示, M3 SearchBar 的视觉契约就是这样。
+            placeholder = { Text("搜索笔记") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             // Bug-2 #154 fix: query 非空时显示清空按钮 (X icon trailing)。
             // 用户没办法快速清空时常常不得不全选+删除,体验糟。
