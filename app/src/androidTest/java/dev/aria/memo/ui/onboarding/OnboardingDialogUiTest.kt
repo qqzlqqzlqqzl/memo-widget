@@ -36,12 +36,16 @@ class OnboardingDialogUiTest {
         compose.onNodeWithText("你的笔记，存在你的 GitHub").assertIsDisplayed()
         compose.onNodeWithText("下一步").performClick()
 
-        // Slide 2: OAuth / PAT login (post-2026-05-09 update mentions both).
-        compose.onNodeWithText("用 GitHub 账号登录").assertIsDisplayed()
+        // Slide 2: OAuth / PAT login (post-2026-05-10 reword: "授权" + 扫码 +
+        // 一次性密码 — kills the "OAuth Device Flow" / "Personal Access Token"
+        // jargon that confused non-dev users).
+        compose.onNodeWithText("用 GitHub 账号授权").assertIsDisplayed()
         compose.onNodeWithText("下一步").performClick()
 
         // Slide 3: settings hand-off — confirmButton flips to '去设置'.
-        compose.onNodeWithText("下一步：去「设置」配置 owner / repo").assertIsDisplayed()
+        // Title reworded to "下一步：去「设置」连仓库" (no more bare
+        // "owner / repo" jargon).
+        compose.onNodeWithText("下一步：去「设置」连仓库").assertIsDisplayed()
         compose.onNodeWithText("去设置").performClick()
 
         assertEquals(1, settingsClicks)
