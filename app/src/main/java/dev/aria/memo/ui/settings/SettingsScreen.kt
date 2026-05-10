@@ -611,10 +611,16 @@ private fun SettingsContent(
             Text("用 GitHub 扫码登录")
         }
 
+        // 字段标签从原英文 GitHub 术语改成"中文 (English)" 双语:
+        //   Owner（用户名或组织）→ 用户名（Owner）
+        //   Repo                → 仓库名（Repo）
+        //   Branch              → 分支（Branch）
+        // 中文当主标签让普通用户一眼能看懂; 英文括号保留, 用户去 GitHub 网站
+        // 找对应字段时仍能对上号 (URL 路径里的 owner/repo/branch 字眼)。
         OutlinedTextField(
             value = state.owner,
             onValueChange = onOwnerChange,
-            label = { Text("Owner（用户名或组织）") },
+            label = { Text("用户名（Owner）") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -622,7 +628,7 @@ private fun SettingsContent(
         OutlinedTextField(
             value = state.repo,
             onValueChange = onRepoChange,
-            label = { Text("Repo") },
+            label = { Text("仓库名（Repo）") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -630,7 +636,7 @@ private fun SettingsContent(
         OutlinedTextField(
             value = state.branch,
             onValueChange = onBranchChange,
-            label = { Text("Branch") },
+            label = { Text("分支（Branch）") },
             placeholder = { Text("main") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -734,16 +740,19 @@ private fun AiConfigSection(
                 color = MaterialTheme.colorScheme.tertiary,
             )
             Text(
-                text = "支持 OpenAI / DeepSeek / Azure / ollama 等 OpenAI-compatible endpoint。" +
-                    "密钥仅保存在本机加密存储中。",
+                // OpenAI-compatible endpoint 是技术黑话, 改成普通用户能 parse
+                // 的描述; 加密存储/本机也少术语化。
+                text = "支持 OpenAI、DeepSeek、Azure、本地 Ollama 等。密钥只存在这台手机。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            // 字段标签从纯英文 (Provider URL / Model / API Key) 改成中文,
+            // placeholder 仍保留具体英文例子让用户能对照原服务的文档。
             OutlinedTextField(
                 value = state.aiProviderUrl,
                 onValueChange = onProviderUrlChange,
-                label = { Text("Provider URL") },
+                label = { Text("服务地址") },
                 placeholder = { Text("https://api.openai.com/v1/chat/completions") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -755,7 +764,7 @@ private fun AiConfigSection(
             OutlinedTextField(
                 value = state.aiModel,
                 onValueChange = onModelChange,
-                label = { Text("Model") },
+                label = { Text("模型") },
                 placeholder = { Text("gpt-4o-mini / deepseek-chat / llama3") },
                 singleLine = true,
                 isError = state.aiModelError != null,
@@ -766,7 +775,7 @@ private fun AiConfigSection(
             OutlinedTextField(
                 value = state.aiApiKey,
                 onValueChange = onApiKeyChange,
-                label = { Text("API Key") },
+                label = { Text("密钥") },
                 placeholder = { Text("sk-…") },
                 singleLine = true,
                 visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -776,7 +785,7 @@ private fun AiConfigSection(
                     IconButton(onClick = onToggleKeyVisibility) {
                         Icon(
                             imageVector = if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = if (keyVisible) "隐藏 API Key" else "显示 API Key",
+                            contentDescription = if (keyVisible) "隐藏密钥" else "显示密钥",
                         )
                     }
                 },

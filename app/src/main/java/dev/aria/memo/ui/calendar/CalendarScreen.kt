@@ -358,10 +358,13 @@ private fun DaySheet(
                         .fillMaxWidth()
                         .height(200.dp),
                 ) {
+                    // 之前空态写"今日无事件 / 添加新事件", 但下面 section 标题
+                    // 是"日程", FAB 文字是"加日程" — 三处用了不同名词指同一个
+                    // 概念。统一到"日程"避免用户对术语犯嘀咕。
                     MemoEmptyState(
                         icon = Icons.Outlined.EventAvailable,
-                        title = "今日无事件",
-                        subtitle = "点右下角添加新事件",
+                        title = "今天没有日程",
+                        subtitle = "点右下角「加日程」开始安排",
                     )
                 }
             }
