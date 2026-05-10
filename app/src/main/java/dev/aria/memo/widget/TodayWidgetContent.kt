@@ -152,8 +152,10 @@ private fun UnconfiguredState() {
             .clickable(actionStartActivity(Intent(context, MainActivity::class.java))),
         contentAlignment = Alignment.Center,
     ) {
+        // 跟 MemoWidget 的 unconfigured 文案对齐, 不在桌面 widget 上提
+        // GitHub/PAT 这种术语 — 跳进 app 后由 onboarding 解释。
         Text(
-            text = "先去设置配置 GitHub",
+            text = "还没连仓库，点这里去设置",
             style = TextStyle(color = GlanceTheme.colors.onBackground, fontWeight = FontWeight.Medium),
         )
     }

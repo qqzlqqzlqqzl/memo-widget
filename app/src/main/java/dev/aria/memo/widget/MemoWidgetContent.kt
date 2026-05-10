@@ -148,7 +148,10 @@ private fun MemoTitleBar(isConfigured: Boolean) {
     val targetActivity = if (isConfigured) EditActivity::class.java else MainActivity::class.java
     TitleBar(
         startIcon = ImageProvider(android.R.drawable.ic_menu_edit),
-        title = "Memo",
+        // "Memo" → 中文 widget label，与 strings.xml 的 R.string.widget_label
+        // 保持一致；之前桌面 widget 顶栏单独冒出一个英文词，跟 App 中文界面
+        // 视觉断层。
+        title = context.getString(R.string.widget_label),
         actions = {
             // 🔄 刷新按钮。Glance 系统资源 `ic_popup_sync` 是经典旋转箭头，
             // 在各厂商主题下都有，避免自建 drawable。
@@ -185,8 +188,11 @@ private fun UnconfiguredBody() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // 之前文案 "先打开 app 配置 GitHub PAT" 把术语暴露到桌面 widget,
+        // 小白用户首次添加 widget 看到这句话就劝退。改成不带 GitHub/PAT 字样
+        // 的人话; 跳到 MainActivity 后 onboarding + 设置页会负责解释具体怎么连。
         Text(
-            text = "先打开 app 配置 GitHub PAT",
+            text = "还没连仓库",
             style = TextStyle(
                 color = GlanceTheme.colors.onBackground,
                 fontWeight = FontWeight.Medium,
@@ -194,7 +200,7 @@ private fun UnconfiguredBody() {
         )
         Spacer(modifier = GlanceModifier.height(8.dp))
         Text(
-            text = "点击打开设置",
+            text = "点这里去设置",
             style = TextStyle(
                 color = GlanceTheme.colors.primary,
                 fontWeight = FontWeight.Medium,
