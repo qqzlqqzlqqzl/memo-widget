@@ -48,17 +48,17 @@ private val SLIDES = listOf(
     OnboardingSlide(
         icon = Icons.Filled.Cloud,
         title = "你的笔记，存在你的 GitHub",
-        body = "memo-widget 不在自己的服务器上保存任何东西。每条笔记都会同步到你 GitHub 仓库的 Markdown 文件——你随时可以用浏览器、其他客户端打开它。",
+        body = "这个 App 不开自己的服务器。每条笔记会变成一份 Markdown 文件，存在你自己的 GitHub 仓库里——浏览器、其他设备都能打开它，App 卸了笔记还在。",
     ),
     OnboardingSlide(
         icon = Icons.Filled.Lock,
-        title = "用 GitHub 账号登录",
-        body = "可以一键扫码登录（OAuth Device Flow），也可以粘贴一枚 Personal Access Token。无论哪种，凭证都加密保存在本机，不会上传到第三方。",
+        title = "用 GitHub 账号授权",
+        body = "推荐用「扫码登录」，跳到 GitHub 网页确认一下就好。不想跳网页的话，也可以手动粘贴一串令牌（GitHub 上叫 PAT，相当于一次性密码）。无论哪种，凭证都只存在本机。",
     ),
     OnboardingSlide(
         icon = Icons.Filled.Settings,
-        title = "下一步：去「设置」配置 owner / repo",
-        body = "点击下方按钮，会带你到「设置」页填 PAT、用户名、仓库名。配好之后再回来写第一条笔记——就不会保存失败了。",
+        title = "下一步：去「设置」连仓库",
+        body = "点下面「去设置」会带你到设置页，把账号连上、选一个仓库存笔记。连好之后回来写第一条——就不会保存失败了。",
     ),
 )
 

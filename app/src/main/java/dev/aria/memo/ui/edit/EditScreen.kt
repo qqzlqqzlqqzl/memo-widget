@@ -403,14 +403,16 @@ private fun EditBody(
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
-                label = { Text("正文（Markdown 友好）") },
+                // 之前 label 是 "正文（Markdown 友好）" — "Markdown" 这个词本身
+                // 对没接触过的人就是黑话, 让人下意识觉得"我得先学会才能写"。
+                // 改成中性、无术语的占位提示, 用 placeholder 而不是 label,
+                // 让空白时有提示、有内容时不留痕。
+                placeholder = { Text("随手写一笔…") },
                 minLines = 8,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false),
             )
-
-            WordCountFooter(body = value.text)
 
             MarkdownToolbar(
                 value = value,
@@ -501,26 +503,6 @@ private fun ModeChips(
             label = { Text("预览") },
         )
     }
-}
-
-@Composable
-private fun WordCountFooter(body: String) {
-    // Fixes #55 (P6.1): cache line count across recompositions that don't
-    // change body; also use codePointCount for user-visible "字符数" so
-    // surrogate-pair emoji count as 1 instead of 2 JVM chars. Renamed
-    // "字数" to "字符数" to avoid the Chinese 字数 / 字符数 ambiguity
-    // (字数 can mean words or characters depending on context).
-    val charCount = remember(body) {
-        if (body.isEmpty()) 0 else body.codePointCount(0, body.length)
-    }
-    val lineCount = remember(body) {
-        if (body.isEmpty()) 0 else body.lineSequence().count()
-    }
-    Text(
-        text = "字符数：$charCount  ·  行数：$lineCount",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 /**

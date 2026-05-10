@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -120,10 +121,13 @@ fun AiChatScreen(
     ) { inner ->
         if (!state.isConfigured) {
             Box(modifier = Modifier.fillMaxSize().padding(inner)) {
+                // 之前文案 "去「设置」填好 Provider URL / API Key / 模型名"
+                // 用术语轰炸用户。改成给具体例子 (OpenAI/DeepSeek/Ollama),
+                // 让没接触过的人至少有个抓手，知道这玩意儿是干嘛的。
                 MemoEmptyState(
                     icon = Icons.Outlined.Psychology,
-                    title = "AI 还没配置",
-                    subtitle = "去「设置」填好 Provider URL / API Key / 模型名再回来",
+                    title = "AI 还没接通",
+                    subtitle = "去「设置」连一个 AI 服务（OpenAI、DeepSeek、本地 Ollama 都可以）",
                 )
             }
             return@Scaffold
@@ -141,11 +145,29 @@ fun AiChatScreen(
             )
 
             if (state.messages.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // 空对话态: 之前只是 "在下方输入框开始问吧" 一句空话, 用户对着
+                // 输入框想不出问什么。给 3-4 个 quick prompt 可点, 既是引导
+                // 也是示范——按一下就发出去, 立刻看到 AI 怎么用。 hasCurrentNote
+                // 时多给一个针对当前笔记的 prompt; 否则只给通用的。
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = MemoSpacing.lg),
+                    verticalArrangement = Arrangement.Center,
+                ) {
                     MemoEmptyState(
                         icon = Icons.AutoMirrored.Outlined.Chat,
                         title = "还没有对话",
-                        subtitle = "在下方输入框开始问吧",
+                        subtitle = "试试下面这些, 或者直接在下方输入框开问",
+                    )
+                    Spacer(modifier = Modifier.size(MemoSpacing.md))
+                    QuickPromptList(
+                        hasCurrentNote = state.hasCurrentNote,
+                        onPick = { prompt ->
+                            viewModel.setInput(prompt)
+                            viewModel.send()
+                        },
                     )
                 }
             } else {
@@ -172,6 +194,50 @@ fun AiChatScreen(
                 onInputChange = viewModel::setInput,
                 onSend = viewModel::send,
             )
+        }
+    }
+}
+
+/**
+ * Quick-prompt suggestions shown on the empty conversation state. Tapping one
+ * pipes the text through [AiChatViewModel.setInput] + [AiChatViewModel.send]
+ * so the user gets an immediate "this is what AI 助手 looks like" demo
+ * instead of staring at a blank composer with no idea what to type.
+ *
+ * The "总结这条笔记" prompt is only surfaced when the screen was opened with
+ * a noteUid (hasCurrentNote=true) — without a focal note it has no referent.
+ */
+@Composable
+private fun QuickPromptList(
+    hasCurrentNote: Boolean,
+    onPick: (String) -> Unit,
+) {
+    val prompts = buildList {
+        if (hasCurrentNote) add("帮我总结这条笔记的要点")
+        add("我最近写了什么？")
+        add("把今天的待办整理一下")
+        add("用我的笔记给我写一段周报")
+    }
+    Column(
+        verticalArrangement = Arrangement.spacedBy(MemoSpacing.sm),
+    ) {
+        prompts.forEach { prompt ->
+            Surface(
+                onClick = { onPick(prompt) },
+                shape = MemoShapes.card,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = prompt,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(
+                        horizontal = MemoSpacing.lg,
+                        vertical = MemoSpacing.md,
+                    ),
+                )
+            }
         }
     }
 }

@@ -18,11 +18,11 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -134,14 +136,40 @@ fun NoteListScreen(
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
+            // Title 反映当前页面状态：有内容时显示总数，让顶栏不再是底部 Tab
+            // 名的死复读机；空状态保留纯标题，避免 "0 条笔记" 反复戳用户。
+            // pinned/unpinned 都可能含 LegacyDay (按天聚合的多条) 或 SingleNote
+            // (一文件一条), 用 sumOf 统一展开。
+            val totalCount = (state.pinned + state.unpinned).sumOf { item ->
+                when (item) {
+                    is NoteListUiItem.LegacyDay -> item.group.entries.size
+                    is NoteListUiItem.SingleNote -> 1
+                }
+            }
             LargeTopAppBar(
-                title = { Text("笔记") },
+                title = {
+                    Text(if (totalCount > 0) "笔记 · $totalCount 条" else "笔记")
+                },
                 actions = {
                     IconButton(onClick = { onOpenAiChat(null) }) {
-                        Icon(Icons.Filled.Psychology, contentDescription = "AI 助手")
+                        // AutoAwesome ✨ 是 M3 通用 AI 隐喻，比 Psychology
+                        // (大脑剖面图) 更直观；普通用户一眼就懂"这是 AI"。
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = "AI 助手")
                     }
-                    IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "同步")
+                    // 同步按钮在 isRefreshing 时切换为 CircularProgressIndicator,
+                    // 让用户立即知道"我点了，确实在拉" — 之前点完毫无反馈。
+                    IconButton(
+                        onClick = viewModel::refresh,
+                        enabled = !state.isRefreshing,
+                    ) {
+                        if (state.isRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(Icons.Filled.Refresh, contentDescription = "同步")
+                        }
                     }
                 },
                 scrollBehavior = scrollBehavior,
@@ -188,6 +216,8 @@ fun NoteListScreen(
                 onAskAiForNote = onOpenAiChat,
                 onDeleteRequest = { uid, title -> pendingDelete = PendingDelete(uid, title) },
                 listState = listState,
+                isRefreshing = state.isRefreshing,
+                onRefresh = viewModel::refresh,
                 innerPadding = PaddingValues(0.dp),
             )
         }
@@ -258,6 +288,8 @@ private fun NoteListBody(
     onAskAiForNote: (noteUid: String?) -> Unit,
     onDeleteRequest: (uid: String, title: String) -> Unit,
     listState: LazyListState,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     innerPadding: PaddingValues,
 ) {
     val context = LocalContext.current
@@ -305,6 +337,14 @@ private fun NoteListBody(
 
         val pinned = state.pinned
         val unpinned = state.unpinned
+        // PullToRefreshBox 包住 列表 + 空态: 用户从空态下拉也能刷新, 满足
+        // "我刚配好账号, 拉一下让笔记进来" 的预期。Android 标准手势, 之前
+        // 完全没接, 一打开就觉得 App 古老。
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         if (pinned.isEmpty() && unpinned.isEmpty()) {
             if (query.isBlank()) {
                 MemoEmptyState(
@@ -363,6 +403,7 @@ private fun NoteListBody(
                 }
             }
         }
+        } // PullToRefreshBox
     }
 }
 
@@ -570,7 +611,7 @@ private fun SingleNoteRow(
                 text = { Text("问 AI") },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Filled.Psychology,
+                        imageVector = Icons.Filled.AutoAwesome,
                         contentDescription = null,
                     )
                 },

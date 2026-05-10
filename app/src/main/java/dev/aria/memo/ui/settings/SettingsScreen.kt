@@ -2,6 +2,7 @@ package dev.aria.memo.ui.settings
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -582,11 +583,32 @@ private fun SettingsContent(
             modifier = patFieldModifier,
         )
 
+        // 加一个"如何获取 PAT"的小按钮直接跳到 GitHub 官方创建页, 之前用户
+        // 看到 "ghp_ 或 github_pat_..." 完全不知道这是从哪里来的, 只能自己
+        // Google 一通。https://github.com/settings/tokens 是 PAT 管理页 (登录
+        // 后能看到 New token 按钮)。
+        TextButton(
+            onClick = {
+                runCatching {
+                    val intent = Intent(
+                        Intent.ACTION_VIEW,
+                        "https://github.com/settings/tokens".toUri(),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(intent)
+                }.onFailure {
+                    // 没装浏览器之类极少数情况, 静默吞掉, 不弹错误打扰用户
+                }
+            },
+            modifier = Modifier.align(Alignment.End),
+        ) {
+            Text("PAT 是什么 / 怎么获取？")
+        }
+
         OutlinedButton(
             onClick = onOAuthSignIn,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("用 GitHub 登录（Device Flow）")
+            Text("用 GitHub 扫码登录")
         }
 
         OutlinedTextField(
