@@ -76,7 +76,9 @@ class PatStatusCardUiTest {
                 )
             }
         }
-        compose.onNodeWithText("正在验证 PAT…").assertIsDisplayed()
+        // 2026-05-11: 文案重写, headline 从 "正在验证 PAT…" → "正在验证…"
+        // (PAT 字眼藏到 onboarding 之后), 用 substring 不再断言 "PAT" 字面。
+        compose.onNodeWithText("正在验证…").assertIsDisplayed()
     }
 
     @Test
@@ -90,7 +92,8 @@ class PatStatusCardUiTest {
                 )
             }
         }
-        compose.onNodeWithText("PAT 状态：有效").assertIsDisplayed()
+        // 2026-05-11: "PAT 状态：有效" → "登录信息有效"
+        compose.onNodeWithText("登录信息有效").assertIsDisplayed()
     }
 
     @Test
@@ -106,7 +109,8 @@ class PatStatusCardUiTest {
                 )
             }
         }
-        compose.onNodeWithText("PAT 已失效", substring = true).assertIsDisplayed()
+        // 2026-05-11: "⚠️ PAT 已失效，请更新" → "登录信息已失效"
+        compose.onNodeWithText("登录信息已失效", substring = true).assertIsDisplayed()
         compose.onNodeWithText("用 GitHub 重新登录").assertIsDisplayed().performClick()
         assertEquals(1, reauthClicks)
         compose.onNodeWithText("重新验证").performClick()

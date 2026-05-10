@@ -63,8 +63,14 @@ fun PatStatusCard(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(top = MemoSpacing.xs),
         )
+        // 之前用 "<owner>" / "<repo>" 当 placeholder, 普通用户看到 < > 会以为
+        // App 出 bug 了。改成"还没填"中文 placeholder; 三个字段都填齐时
+        // 仍是清爽的 "owner/repo · branch" 形式让用户能 verify 配置对不对。
+        val owner = state.owner.ifBlank { "（还没填用户名）" }
+        val repo = state.repo.ifBlank { "（还没填仓库名）" }
+        val branch = state.branch.ifBlank { "main" }
         Text(
-            text = "目标仓库：${state.owner.ifBlank { "<owner>" }}/${state.repo.ifBlank { "<repo>" }} · ${state.branch.ifBlank { "main" }}",
+            text = "目标仓库：$owner/$repo · $branch",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = MemoSpacing.xs),
@@ -135,7 +141,8 @@ private fun SettingsUiState.toVisual(): PatStatusVisual {
     if (!isConfigured) {
         return PatStatusVisual(
             headline = "还缺：${missingFields.joinToString("、")}",
-            detail = "填好 PAT、Owner、Repo 之后会自动验证一次。",
+            // PAT/Owner/Repo 术语去掉, 跟新的中文标签对齐
+            detail = "把上面几个字段填齐就会自动验证一次。",
             accent = bad,
             glyph = Icons.Filled.ErrorOutline,
             showSpinner = false,
@@ -151,31 +158,35 @@ private fun SettingsUiState.toVisual(): PatStatusVisual {
             // alone — Material Icons ship inside the app so they
             // render identically across vendors.
             headline = "配置已就绪",
-            detail = "字段都填了。点「重新验证」可以确认 PAT 是否仍然有效。",
+            detail = "字段都填了。点「重新验证」可以确认登录信息是否仍然有效。",
             accent = mute,
             glyph = Icons.AutoMirrored.Filled.HelpOutline,
             showSpinner = false,
             actions = listOf(PatAction(PatActionKind.Verify, "重新验证")),
         )
         is PatStatus.Verifying -> PatStatusVisual(
-            headline = "正在验证 PAT…",
-            detail = "向 GitHub 发了一次 contents 请求，几秒就回来。",
+            headline = "正在验证…",
+            // "向 GitHub 发了一次 contents 请求" 是后端实现细节, 用户不需要知道
+            detail = "正在跟 GitHub 打招呼，几秒就回来。",
             accent = mute,
             glyph = null,
             showSpinner = true,
             actions = emptyList(),
         )
         is PatStatus.Valid -> PatStatusVisual(
-            headline = "PAT 状态：有效",
-            detail = "GitHub 接受了这枚 PAT，sync 通道已通。",
+            headline = "登录信息有效",
+            // "sync 通道" 是 dev 行话, 用户语言是"同步"
+            detail = "GitHub 接受了这枚登录信息，同步可以正常进行。",
             accent = ok,
             glyph = Icons.Filled.CheckCircle,
             showSpinner = false,
             actions = listOf(PatAction(PatActionKind.Verify, "重新验证")),
         )
         is PatStatus.Invalid -> PatStatusVisual(
-            headline = "⚠️ PAT 已失效，请更新",
-            detail = "${s.message}。建议直接「用 GitHub 重新登录」拿一枚新令牌；老的会被覆盖。",
+            // ⚠️ emoji 在某些字体里会 fallback 成 ⬜, 跟 Fix #247 同样的问题;
+            // 状态色 + 左侧 ErrorOutline 图标已经够强提示, 文案不必再重复警示符。
+            headline = "登录信息已失效",
+            detail = "${s.message}。建议「用 GitHub 重新登录」换一枚新的；老的会自动替换。",
             accent = bad,
             glyph = Icons.Filled.ErrorOutline,
             showSpinner = false,
@@ -185,8 +196,8 @@ private fun SettingsUiState.toVisual(): PatStatusVisual {
             ),
         )
         is PatStatus.CheckFailed -> PatStatusVisual(
-            headline = "⚠️ 暂时验证不上",
-            detail = "${s.message}。这未必是 PAT 的问题，再试一次看看。",
+            headline = "暂时验证不上",
+            detail = "${s.message}。不一定是登录信息的问题，再试一次看看。",
             accent = warn,
             glyph = Icons.Filled.WarningAmber,
             showSpinner = false,

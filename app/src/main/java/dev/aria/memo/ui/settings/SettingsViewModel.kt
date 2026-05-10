@@ -115,9 +115,13 @@ data class SettingsUiState(
 
     val missingFields: List<String>
         get() = buildList {
-            if (pat.isBlank()) add("PAT")
-            if (owner.isBlank()) add("Owner")
-            if (repo.isBlank()) add("Repo")
+            // 与 SettingsScreen 字段标签 (用户名 / 仓库名 / 登录令牌) 对齐,
+            // 让 PatStatusCard 的"还缺：xxx"提示和用户实际看到的字段名一致;
+            // 之前显示 "还缺: PAT、Owner、Repo" 但用户在表单里看到的是"用户名/
+            // 仓库名/GitHub PAT", 对不上号。
+            if (pat.isBlank()) add("登录令牌")
+            if (owner.isBlank()) add("用户名")
+            if (repo.isBlank()) add("仓库名")
         }
 }
 
