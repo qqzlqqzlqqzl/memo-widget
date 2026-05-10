@@ -38,7 +38,9 @@ class SyncBannerUiTest {
             }
         }
 
-        compose.onNodeWithText("GitHub 认证失败，请检查 PAT", substring = true).assertIsDisplayed()
+        // 2026-05-11: SyncBanner 文案从术语化重写成大白话, 测试跟着断
+        // 言新文案。具体替换 mapping 见 SyncBanner.kt 的 friendlyText。
+        compose.onNodeWithText("GitHub 拒绝了", substring = true).assertIsDisplayed()
         compose.onNodeWithText("去设置").assertIsDisplayed().performClick()
         compose.onNodeWithText("知道了").assertIsDisplayed()
 
@@ -57,7 +59,7 @@ class SyncBannerUiTest {
             }
         }
 
-        compose.onNodeWithText("尚未配置 GitHub 同步", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("还没连仓库", substring = true).assertIsDisplayed()
         compose.onNodeWithText("去设置").assertIsDisplayed()
     }
 
@@ -73,7 +75,7 @@ class SyncBannerUiTest {
             }
         }
 
-        compose.onNodeWithText("网络错误", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("网络不太行", substring = true).assertIsDisplayed()
         // Network error → user can't act on it from this banner.
         compose.onNodeWithText("去设置").assertDoesNotExist()
         compose.onNodeWithText("知道了").assertIsDisplayed()

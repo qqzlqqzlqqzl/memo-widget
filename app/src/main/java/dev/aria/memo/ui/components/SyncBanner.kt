@@ -61,13 +61,16 @@ fun SyncBanner(
                 imageVector = Icons.Filled.SyncProblem,
                 contentDescription = null,
             )
+            // Banner 文案改成大白话、跟 onboarding/widget 的"连仓库"措辞一致;
+            // PAT/认证/并发冲突/远程文件 这些纯术语换成"GitHub 拒绝了 / 自动处理了 /
+            // 找不到 / 还没连仓库"。每条都说清"问题在哪、用户是不是要做什么"。
             val friendlyText = when (err.code) {
-                ErrorCode.UNAUTHORIZED -> "GitHub 认证失败，请检查 PAT"
-                ErrorCode.NETWORK -> "网络错误，稍后会自动重试"
-                ErrorCode.CONFLICT -> "并发冲突，已自动重试"
-                ErrorCode.NOT_FOUND -> "远程文件不存在"
-                ErrorCode.NOT_CONFIGURED -> "尚未配置 GitHub 同步"
-                ErrorCode.UNKNOWN -> "同步失败"
+                ErrorCode.UNAUTHORIZED -> "GitHub 拒绝了, 多半是登录信息过期或权限不够"
+                ErrorCode.NETWORK -> "网络不太行, 稍后会自动重试"
+                ErrorCode.CONFLICT -> "和云端有冲突, 已经自动处理了"
+                ErrorCode.NOT_FOUND -> "远端找不到这个文件"
+                ErrorCode.NOT_CONFIGURED -> "还没连仓库, 去设置里连一个吧"
+                ErrorCode.UNKNOWN -> "同步出了点问题"
             } + err.message.takeIf { BuildConfig.DEBUG }?.let { "（$it）" }.orEmpty()
             Text(
                 text = friendlyText,
