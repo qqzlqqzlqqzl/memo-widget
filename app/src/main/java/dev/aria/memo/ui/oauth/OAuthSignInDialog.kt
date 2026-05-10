@@ -97,7 +97,10 @@ fun OAuthSignInDialog(
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.height(18.dp),
                             )
-                            Text("正在向 GitHub 申请设备码…")
+                            // "设备码" 是 OAuth 术语, 跟下一屏的"验证码"语义其实
+                            // 是一回事 (user_code) — 统一叫"验证码"避免一前一后
+                            // 两个名词指同一个东西让用户犯嘀咕。
+                            Text("正在向 GitHub 申请验证码…")
                         }
                     }
                     is OAuthSignInState.WaitingForUser -> WaitingForUserContent(s, ctx)
@@ -178,8 +181,13 @@ private fun WaitingForUserContent(
             strokeWidth = 2.dp,
             modifier = Modifier.size(16.dp),
         )
+        // 之前 "(每 5s 轮询，900s 内有效)" 暴露了 polling interval / expires_in
+        // 这种 OAuth 实现细节, 用户根本不在乎"轮询"二字。改成只说"剩 N 分钟",
+        // expiresInSeconds 转成分钟; 不到 1 分钟显示秒数避免 "0 分钟" 假死。
+        val mins = state.expiresInSeconds / 60
+        val remainText = if (mins >= 1) "剩 $mins 分钟" else "剩 ${state.expiresInSeconds} 秒"
         Text(
-            text = "等待授权中… (每 ${state.intervalSeconds}s 轮询，${state.expiresInSeconds}s 内有效)",
+            text = "等你在浏览器里完成授权… ($remainText)",
             style = MaterialTheme.typography.bodySmall,
         )
     }
@@ -191,26 +199,32 @@ private fun CompletedContent(state: OAuthSignInState.Completed) {
         text = "登录成功 ✓",
         style = MaterialTheme.typography.titleMedium,
     )
+    // 之前 "已获取访问令牌（scope: repo），已写入本机设置" 整句都是术语
+    // (访问令牌 / scope / 本机设置)。改成大白话, scope 这种调试信息 OAuth
+    // 完成后用户根本不会再关心。
     Text(
-        text = "已获取访问令牌${if (state.scope.isNotBlank()) "（scope: ${state.scope}）" else ""}，已写入本机设置。",
+        text = "登录信息已保存到这台手机。",
         style = MaterialTheme.typography.bodyMedium,
     )
 }
 
 @Composable
 private fun FailedContent(state: OAuthSignInState.Failed) {
+    // 错误文案改友好: 把"设备流 / 请求参数 / 非预期的响应"等术语, 换成
+    // 用户能立刻判断"这事儿是我能修的, 还是 GitHub 那边的事"的话; 仍保留
+    // Client ID 因为那是用户在配置里自己填进去的, 提名能让他立即对上号。
     val humanMessage = when (state.kind) {
-        OAuthErrorKind.ExpiredToken -> "验证码已过期，请重试。"
+        OAuthErrorKind.ExpiredToken -> "刚才的验证码已经过期了, 重新申请一个吧。"
         OAuthErrorKind.AccessDenied -> "你在浏览器里取消了授权。"
-        OAuthErrorKind.BadClientId -> "Client ID 不正确或已禁用设备流。"
-        OAuthErrorKind.BadRequest -> "请求参数异常，请检查 Client ID。"
-        OAuthErrorKind.Network -> "网络错误，请检查连接后重试。"
-        OAuthErrorKind.Malformed -> "GitHub 返回了非预期的响应。"
-        OAuthErrorKind.Unknown -> "未知错误。"
+        OAuthErrorKind.BadClientId -> "Client ID 不对, 或者这个 OAuth App 没开扫码登录。"
+        OAuthErrorKind.BadRequest -> "请求被 GitHub 拒了, 看看 Client ID 填得对不对。"
+        OAuthErrorKind.Network -> "网络不太行, 检查一下连接再重试。"
+        OAuthErrorKind.Malformed -> "GitHub 返回的内容看不懂, 多半是它那边出问题了。"
+        OAuthErrorKind.Unknown -> "出了点意外。"
         // These two are internal to the poll loop — should not surface here,
         // but provide a safe fallback so a future refactor doesn't crash.
         OAuthErrorKind.AuthorizationPending, OAuthErrorKind.SlowDown ->
-            "正在等待授权，请重试。"
+            "授权还没完成, 再等一下。"
     }
     Text(
         text = humanMessage,
