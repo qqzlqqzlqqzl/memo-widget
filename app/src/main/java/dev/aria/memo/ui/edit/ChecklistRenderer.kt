@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 
 /**
@@ -143,6 +144,9 @@ private fun ChecklistRow(
             checked = line.checked,
             onCheckedChange = debouncedToggle,
         )
+        // 已勾选: 颜色淡化 + strikethrough 划掉, 让"已完成" 比单纯调灰更突出 —
+        // 对色盲 / 快速扫视的用户尤其重要 (单靠 onSurfaceVariant vs onSurface
+        // 的明度差在大屏弱光下不够明显)。
         Text(
             text = line.text,
             style = MaterialTheme.typography.bodyMedium,
@@ -151,6 +155,7 @@ private fun ChecklistRow(
             } else {
                 MaterialTheme.colorScheme.onSurface
             },
+            textDecoration = if (line.checked) TextDecoration.LineThrough else null,
         )
     }
 }
