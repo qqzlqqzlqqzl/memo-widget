@@ -334,7 +334,14 @@ private fun DaySheet(
     onEventClick: (EventOccurrence) -> Unit,
     padding: PaddingValues,
 ) {
-    val title = date.format(DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日 EEEE"))
+    // EEEE 不带 .withLocale 时跟系统 Locale 走 — 中文系统显示"星期一", 英文系统
+    // 显示 "Monday"。整体 UI 是中文的, header 里突然蹦个 Monday 视觉断层 (emulator
+    // 实测就是这个效果)。强制 SIMPLIFIED_CHINESE 让 weekday 在任何 system locale
+    // 下都是中文。
+    val title = date.format(
+        DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日 EEEE")
+            .withLocale(Locale.SIMPLIFIED_CHINESE),
+    )
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -464,3 +471,4 @@ private val FAB_GUTTER = 56.dp + 32.dp
  */
 private val A11Y_DAY_FMT: java.time.format.DateTimeFormatter =
     java.time.format.DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日 EEEE")
+        .withLocale(Locale.SIMPLIFIED_CHINESE)

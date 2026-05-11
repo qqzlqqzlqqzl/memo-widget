@@ -449,7 +449,11 @@ private fun LazyListScope.renderItems(
     }
 }
 
-private val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy 年 MM 月 dd 日 EEEE")
+// EEEE 强制 SIMPLIFIED_CHINESE: 英文 system locale 下原本会显示 "Monday" 而其它
+// 字面是中文 — 视觉上断层。emulator (默认 en-US) 测试发现的小回归。
+private val DATE_FMT: DateTimeFormatter = DateTimeFormatter
+    .ofPattern("yyyy 年 MM 月 dd 日 EEEE")
+    .withLocale(java.util.Locale.SIMPLIFIED_CHINESE)
 private val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 // Fixes #245 (UI-A #28): align with the Chinese-style DayHeader so a
 // SingleNote row reads as "4月21日 15:30" instead of the slash-form
