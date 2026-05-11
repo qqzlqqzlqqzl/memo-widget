@@ -68,6 +68,7 @@ import dev.aria.memo.data.oauth.GitHubOAuthClient
 import dev.aria.memo.notify.NotificationPermissionBus
 import dev.aria.memo.notify.QuickAddNotificationManager
 import dev.aria.memo.ui.components.MemoCard
+import dev.aria.memo.ui.components.MemoSectionHeader
 import dev.aria.memo.ui.components.PatStatusCard
 import dev.aria.memo.ui.oauth.OAuthSignInDialog
 import dev.aria.memo.ui.oauth.OAuthSignInState
@@ -506,6 +507,15 @@ private fun SettingsContent(
             .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(MemoSpacing.md),
     ) {
+        // Settings 页 1121 行扁平堆 14 张卡, 用户找不到重点。重排+加 section
+        // header 后, 顶部是"出问题需要立刻处理的"alert, 然后按"GitHub 账号 → AI
+        // 助手 → 应用偏好 → 帮助与诊断"分组, 让用户能扫到自己要的。
+        //
+        // 没用 Card 容器套整个 section, 因为里面已经是 MemoCard 嵌套, 双层卡
+        // 视觉太重; section header 是 labelLarge primary 色文字, 上下间距由
+        // MemoSectionHeader 自己处理。
+
+        // ── 顶部 Alerts (条件渲染, 没问题就不出现) ──
         if (notificationDenied) {
             NotificationPermissionCard(onOpenSettings = onOpenNotificationSettings)
         }
@@ -521,26 +531,9 @@ private fun SettingsContent(
                 },
             )
         }
-        // Hide the sync status card when GitHub isn't configured — its
-        // "尚未上传 / 尚未检查" message adds confusion for users who haven't
-        // even set up the repo, and PatStatusCard below already tells them
-        // what's missing. Surfaces immediately on the next recomposition
-        // after they finish configuring.
-        if (state.isConfigured) {
-            SyncStatusCard(
-                lastPushEpochMs = lastPushEpochMs,
-                lastPullEpochMs = lastPullEpochMs,
-                onSyncNow = onSyncNow,
-            )
-        }
-        QuickAddToggleCard(
-            enabled = quickAddEnabled,
-            onToggle = onQuickAddToggle,
-        )
-        ThemeChooserCard(
-            mode = themeMode,
-            onChange = onThemeModeChange,
-        )
+
+        // ── GitHub 账号 (主功能, 用户进设置页的主要原因) ──
+        MemoSectionHeader(text = "GitHub 账号")
         // Fix-X1: replaces the legacy StatusCard. The new card surfaces the
         // PAT *liveness* state machine (Unknown / Verifying / Valid / Invalid
         // / CheckFailed) instead of just "fields non-blank?", and exposes
@@ -700,6 +693,19 @@ private fun SettingsContent(
             Text("立即写一条")
         }
 
+        // SyncStatusCard 移到 GitHub 账号块的尾部 — 之前它出现在最顶部,
+        // 但"上次上传 / 上次检查"只在配好账号后才有意义, 跟 PatStatusCard
+        // 放一起更连贯。
+        if (state.isConfigured) {
+            SyncStatusCard(
+                lastPushEpochMs = lastPushEpochMs,
+                lastPullEpochMs = lastPullEpochMs,
+                onSyncNow = onSyncNow,
+            )
+        }
+
+        // ── AI 助手 ──
+        MemoSectionHeader(text = "AI 助手")
         AiConfigSection(
             state = state,
             keyVisible = aiKeyVisible,
@@ -711,6 +717,19 @@ private fun SettingsContent(
             onTest = onTestAi,
         )
 
+        // ── 应用偏好 (低频, 一次设置完基本不动) ──
+        MemoSectionHeader(text = "应用偏好")
+        QuickAddToggleCard(
+            enabled = quickAddEnabled,
+            onToggle = onQuickAddToggle,
+        )
+        ThemeChooserCard(
+            mode = themeMode,
+            onChange = onThemeModeChange,
+        )
+
+        // ── 帮助与诊断 ──
+        MemoSectionHeader(text = "帮助与诊断")
         LogExportCard(onExport = onExportLogs)
 
         HelpEntryCard(onOpenHelp = onOpenHelp)
