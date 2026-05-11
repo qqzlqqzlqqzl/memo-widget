@@ -10,6 +10,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 
 private val MemoLightColors = lightColorScheme(
@@ -125,15 +126,27 @@ fun MemoThemeWithMode(
  * For colors that DO map to the M3 scheme (primary / tertiary / scrim /
  * surfaceContainerHighest etc.) prefer `MaterialTheme.colorScheme.*`
  * directly; this object only covers the gaps.
+ *
+ * Light/dark detection: derive from `MaterialTheme.colorScheme.background`
+ * luminance rather than `isSystemInDarkTheme()`. The latter only reads the
+ * *system* dark-mode flag, ignoring the user's manual "亮"/"暗" override
+ * routed through [MemoThemeWithMode] — so a system-light device with the
+ * user picking 暗 would otherwise paint a dark surface + a light-warning
+ * yellow that the rest of the palette is no longer expecting.
  */
 object MemoThemeColors {
     val warning: Color
         @Composable
         @ReadOnlyComposable
-        get() = if (isSystemInDarkTheme()) MemoDarkWarning else MemoLightWarning
+        get() = if (isDarkPalette()) MemoDarkWarning else MemoLightWarning
 
     val inlineCodeBg: Color
         @Composable
         @ReadOnlyComposable
-        get() = if (isSystemInDarkTheme()) MemoDarkInlineCodeBg else MemoLightInlineCodeBg
+        get() = if (isDarkPalette()) MemoDarkInlineCodeBg else MemoLightInlineCodeBg
+
+    @Composable
+    @ReadOnlyComposable
+    private fun isDarkPalette(): Boolean =
+        MaterialTheme.colorScheme.background.luminance() < 0.5f
 }
