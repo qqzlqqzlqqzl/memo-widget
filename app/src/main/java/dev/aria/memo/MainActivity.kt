@@ -18,9 +18,17 @@ import dev.aria.memo.ui.nav.AppNav
 import dev.aria.memo.ui.theme.MemoThemeWithMode
 
 /**
- * Launcher host. Bottom-nav shell (笔记 / 日历 / 设置). FLAG_SECURE is applied
- * dynamically by [dev.aria.memo.ui.SettingsScreen] only while the user is
- * viewing the PAT in plaintext — keeping other tabs screen-capture-friendly.
+ * Launcher host. Bottom-nav shell with four tabs (笔记 / 标签 / 日历 / 设置).
+ *
+ * FLAG_SECURE coverage:
+ *  - MainActivity itself stays screen-capture-friendly so 笔记 / 标签 / 日历
+ *    can show in app-switcher previews + accept screenshots.
+ *  - SettingsScreen flips FLAG_SECURE on for the entire settings tab via a
+ *    DisposableEffect (was originally PAT-plaintext-only — broadened in #99
+ *    because the form still leaks redacted-but-reversible fields).
+ *  - EditActivity is a separate Activity that sets FLAG_SECURE in onCreate
+ *    so the body field (which may contain pasted credentials, private notes,
+ *    etc.) is excluded from screenshots + app-switcher thumbnails too.
  *
  * P4.1: requests POST_NOTIFICATIONS at first open on Android 13+ so event
  * reminders can actually reach the user. (Fixes review finding S2.)
