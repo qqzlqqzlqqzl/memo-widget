@@ -173,7 +173,7 @@ fun SettingsScreen(
             viewModel.requestPatHighlight()
             scope.launch {
                 snackbarHostState.showSnackbar(
-                    "GitHub 登录失败：PAT 可能已过期或权限不足，请检查设置",
+                    "GitHub 登录失败: 上次的登录信息可能过期了, 请检查设置",
                 )
             }
         }
@@ -418,7 +418,7 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        text = "如果只是想更新过期的 PAT、保留本地未同步内容，请按 取消 然后用「保存」。",
+                        text = "如果只是想更新过期的登录信息、保留本地未同步内容, 请按 取消 然后用「保存」。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -379,12 +379,14 @@ class EditViewModel @VisibleForTesting internal constructor(
     }
 
     private fun humanMessage(code: ErrorCode, fallback: String): String = when (code) {
-        ErrorCode.NOT_CONFIGURED -> "还没配置 PAT / 仓库，请先去设置页"
-        ErrorCode.UNAUTHORIZED -> "GitHub 拒绝访问：PAT 无效或权限不足"
-        ErrorCode.NOT_FOUND -> "GitHub 找不到目标路径"
-        ErrorCode.CONFLICT -> "远程被人改了，请稍后重试"
-        ErrorCode.NETWORK -> "网络异常，请检查连接"
-        ErrorCode.UNKNOWN -> fallback.ifBlank { "未知错误" }
+        // 写完按保存炸到的提示, 用户最焦虑时看的。统一对齐 SyncBanner 的口语化:
+        // "PAT / 仓库" 黑话 → "还没连仓库"; "PAT 无效或权限不足" → "登录信息..."
+        ErrorCode.NOT_CONFIGURED -> "还没连仓库, 去设置里连一个再保存"
+        ErrorCode.UNAUTHORIZED -> "GitHub 拒绝了, 多半是登录信息过期或权限不够"
+        ErrorCode.NOT_FOUND -> "GitHub 找不到目标位置"
+        ErrorCode.CONFLICT -> "云端这条笔记被别处改过, 稍后重试"
+        ErrorCode.NETWORK -> "网络不太行, 检查一下连接"
+        ErrorCode.UNKNOWN -> fallback.ifBlank { "出了点意外" }
     }
 
     companion object {

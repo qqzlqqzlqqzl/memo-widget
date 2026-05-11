@@ -167,7 +167,7 @@ class SettingsViewModel(
                 if (status is SyncStatus.Error && status.code == ErrorCode.UNAUTHORIZED) {
                     _state.value = _state.value.copy(
                         patStatus = PatStatus.Invalid(
-                            message = status.message.ifBlank { "GitHub 拒绝了这枚 PAT" },
+                            message = status.message.ifBlank { "GitHub 拒绝了登录信息" },
                             checkedAt = System.currentTimeMillis(),
                         ),
                     )
@@ -399,7 +399,7 @@ class SettingsViewModel(
                 is MemoResult.Ok -> PatStatus.Valid(checkedAt = now)
                 is MemoResult.Err -> when (result.code) {
                     ErrorCode.UNAUTHORIZED -> PatStatus.Invalid(
-                        message = "GitHub 拒绝了这枚 PAT — 多半已过期或被回收",
+                        message = "GitHub 拒绝了登录信息 — 多半已过期或被回收",
                         checkedAt = now,
                     )
                     // 404 means the repo path is wrong but the token itself
