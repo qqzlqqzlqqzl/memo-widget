@@ -1,19 +1,10 @@
 # Memo Widget
 
-> 📌 **本仓库文档以中文为主**，但保留一小段英文摘要，方便开源项目审核和国际开发者快速了解项目。
->
-> - 🟢 **普通用户** → 看 [USER_GUIDE.md《使用说明书》](USER_GUIDE.md)（不需要懂代码）
-> - 🛠️ **开发者 / 接手代码** → 看 [HANDOFF.md](HANDOFF.md)（当前架构 + 待办）
-> - 📜 **P0 历史设计** → [AGENT_SPEC.md](AGENT_SPEC.md)（已过期，仅存档用途）
-> - 📄 **本文**（README.md） → 技术总览，继续往下读
+Memo Widget is an MIT-licensed Android app for Git-backed personal notes, calendar data, home-screen widgets, offline sync, and optional OpenAI-compatible Q&A.
 
-## English summary for OSS reviewers
+Every note and event is stored in a GitHub repository chosen by the user. Notes are written as Markdown, calendar events are stored as iCalendar files, and local edits are synced through GitHub while remaining usable offline.
 
-Memo Widget is an MIT-licensed Android app for Git-backed personal notes and calendar data. It stores Markdown notes and iCalendar events in the user's own GitHub repository, supports offline-first sync, encrypted storage for GitHub PATs and AI API keys, and optional OpenAI-compatible Q&A over the user's notes. The repository includes releases, screenshots, CI, Dependabot, security reporting guidance, issue templates, changelog, and BDD-style maintenance notes.
-
-This is an early-stage project with small adoption, but it has real maintainer work: Android release hardening, sync conflict handling, secure token storage, dependency updates, bug triage, regression tests, and documentation for users and future contributors.
-
-一个后端是 **GitHub** 的 Android 笔记 + 日程 app。写的每一条笔记、每一个日程都会自动 commit 到你自己的 GitHub 仓库，多设备之间自动同步，离线也能用。**v0.11.0-p7 起**接入 AI 问答（任何 OpenAI-compatible endpoint：OpenAI / DeepSeek / ollama 等）；**v0.12.1-p8 起** Memo 小组件重做为"最近 20 条可滚动列表 + 自动刷新 + 手动刷新按钮"，笔记任何增删改都会立即反映到桌面；**v0.12.2-p8 → v0.12.21-p8** 包含 P8.1 closeout + P9-revisit 浪潮（约 60 条真实 fix）+ R8 install-failure 修复 + 设置面新增主题切换 / 日志导出 / 崩溃栈持久化 / 同步状态卡（详见 CHANGELOG 两条 entry）。
+The project is early-stage, but it has real open source maintenance surface area: Android release hardening, sync conflict handling, encrypted GitHub PAT/API-key storage, CI, Dependabot, issue triage, changelog discipline, security reporting guidance, and user-facing documentation.
 
 [![release](https://img.shields.io/badge/latest%20release-v0.12.19--p8-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.12.19-p8)
 [![CI](https://github.com/qqzlqqzlqqzl/memo-widget/actions/workflows/ci.yml/badge.svg)](https://github.com/qqzlqqzlqqzl/memo-widget/actions/workflows/ci.yml)
@@ -26,108 +17,115 @@ This is an early-stage project with small adoption, but it has real maintainer w
 
 ---
 
-## 这个 app 能干什么
+## Documentation
 
-| 功能 | 说明 |
+- [User guide](USER_GUIDE.md): end-user setup and usage notes.
+- [Maintainer handoff](HANDOFF.md): architecture, current state, and maintenance notes.
+- [Changelog](CHANGELOG.md): release history and regression context.
+- [Security policy](SECURITY.md): private vulnerability reporting and security design notes.
+- [Contributing guide](CONTRIBUTING.md): development setup and pull request expectations.
+
+## What It Does
+
+| Feature | Description |
 |---|---|
-| 📝 写笔记 | 按天分组的 Markdown 笔记（`## HH:MM`）+ P6.1 起的 Obsidian 风一笔记一文件 |
-| 📅 记日程 | 标准 iCalendar (`.ics`) 格式，Google / 苹果日历可以直接订阅 |
-| 🔁 循环日程 | `FREQ=WEEKLY` / `FREQ=MONTHLY` RRULE，日历页事件右侧显示 🔁 |
-| 🔔 本地提醒 | 事件开始前 5 / 15 / 60 分钟弹系统通知（AlarmManager） |
-| 🔍 搜索 | 全文搜索所有笔记 |
-| 🏠 桌面小部件 | **P8 重做**：Memo widget 可滚动展示最近 **20 条**笔记（非 3 条快照），顶部带 ➕ 新建 / 🔄 手动刷新；笔记增删改 / 同步 push/pull / 切 PAT 全自动刷新桌面。Today widget 维持"今天"视角（4×2） |
-| ☁️ GitHub 同步 | 写完自动推送；每 30 分钟后台 Pull；PushWorker 有 SHA 冲突自愈 |
-| 📴 离线可用 | 没网也能写，有网自动 push |
-| 🔒 加密 Token | PAT + AI API Key 走 Android Keystore + EncryptedSharedPreferences 加密，FLAG_SECURE 防截屏 |
-| 🟦 同步状态条 | 笔记页顶部 `SyncBanner`：成功静默，失败红条 + 错误码，用户可关 |
-| 🤖 AI 问答 | **v0.11.0-p7 起**。Settings 填 Provider URL / API Key / Model；顶栏 🧠 图标进聊天，或长按任一笔记选"问 AI"带笔记内容提问。三段上下文切换（无 / 当前笔记 / 全部笔记）+ 多轮对话 |
+| Notes | Daily Markdown notes grouped by timestamp, plus single-note-file storage for Obsidian-style workflows. |
+| Calendar | Events are stored as standard `.ics` files and can be consumed by external calendar tools. |
+| Recurring events | Supports weekly and monthly RRULE recurrence. |
+| Local reminders | Android notifications before events using `AlarmManager`. |
+| Search | Full-text search across local notes. |
+| Home-screen widgets | Scrollable memo widget, quick-create action, manual refresh, and a Today widget. |
+| GitHub sync | Local-first writes, periodic pull, push retry, and SHA conflict recovery. |
+| Offline support | Notes and events can be created without network access and synced later. |
+| Secret storage | GitHub PATs and AI API keys are encrypted with Android Keystore-backed storage. |
+| AI Q&A | Optional OpenAI-compatible chat over the current note or all notes. |
 
 ---
 
-## 界面截图
+## Screenshots
 
-### 笔记列表
+### Notes
 
-按日期倒序排列所有笔记，顶部有搜索，右下角浮动按钮快速写一条。同步失败时顶部会出现红色条 (`SyncBanner`)。
+Notes are listed by date with search and a quick-create action. Sync failures appear in a dismissible banner.
 
-![笔记空态](screenshots/p2/01_notes_empty.png)
+![Notes screen empty state](screenshots/p2/01_notes_empty.png)
 
-### 设置页
+### Settings
 
-填 GitHub Personal Access Token / owner / repo / branch，保存后顶部状态条变蓝。PAT 走 `EncryptedSharedPreferences` + Android Keystore，本机也看不到明文；明文可见时自动加 `FLAG_SECURE` 防截屏。
+Users configure a GitHub Personal Access Token, repository owner, repository name, and branch. PATs are stored through `EncryptedSharedPreferences` and Android Keystore; secret-revealing screens use `FLAG_SECURE` where appropriate.
 
-| 空态 | 填好后 | 保存 |
+| Empty | Filled | Saved |
 |---|---|---|
-| ![设置-空](screenshots/p2/02_settings_empty.png) | ![设置-填好](screenshots/p2/03_settings_filled.png) | ![设置-保存](screenshots/p2/05_settings_saved.png) |
+| ![Settings empty state](screenshots/p2/02_settings_empty.png) | ![Settings filled](screenshots/p2/03_settings_filled.png) | ![Settings saved](screenshots/p2/05_settings_saved.png) |
 
-### 日历 + 日程
+### Calendar
 
-月视图支持前后翻月，有笔记/日程的日期下方有蓝色小点。点某一天，下方列出当天所有日程和笔记。循环日程每个发生都会在对应日期显示，但只有一条数据库记录。右下角"加日程"弹出编辑对话框，可选"不重复 / 每周 / 每月 / 自定义"以及"无 / 5 分钟前 / 15 分钟前 / 1 小时前"提醒。
+The calendar shows notes and events by date. Recurring events are expanded in the UI while keeping a single event record.
 
-| 月视图 | 新建日程（含循环 + 提醒） |
+| Month view | New event with recurrence and reminders |
 |---|---|
-| ![日历](screenshots/p2/06_calendar_empty.png) | ![新建日程](screenshots/p2/07_event_dialog.png) |
+| ![Calendar screen](screenshots/p2/06_calendar_empty.png) | ![New event dialog](screenshots/p2/07_event_dialog.png) |
 
-### 写笔记
+### Editor
 
-简单的 Markdown 编辑器，支持多行，可以写列表、引用、代码块（Markdown 友好）。保存后自动推送到 GitHub。
+The editor supports multi-line Markdown. Saved notes are written locally first and then synced to GitHub.
 
-| 空白 | 打字中 |
+| Empty | Editing |
 |---|---|
-| ![edit 空](screenshots/p2/11_edit_empty.png) | ![edit 打字](screenshots/p2/12_edit_typed.png) |
+| ![Editor empty state](screenshots/p2/11_edit_empty.png) | ![Editor with text](screenshots/p2/12_edit_typed.png) |
 
-### 桌面小部件
+### Widgets
 
-长按桌面 → 添加小部件 → 找到 **备忘**（2×2，快速写一条）或 **今日**（4×2，今天的日程 + 备忘一览）。
+The app provides a memo widget for quick notes and a Today widget for the current day's events and notes.
 
-> Widget 实机截图待补（`adb exec-out screencap` 在 launcher 进程里需要额外权限，下个版本用真机截图补上）。
+> Real-device widget screenshots are still pending because launcher screenshots need extra device permissions.
 
 ---
 
-## 怎么装
+## Installation
 
-1. 去 [Releases](https://github.com/qqzlqqzlqqzl/memo-widget/releases) 下载最新公开发布的 APK（当前最新公开 release：**v0.12.19-p8**）
-2. 手机上点这个 apk → 系统会要求你在"设置 → 应用 → 特殊权限 → 安装未知来源"里给浏览器打勾
-3. 装好后打开 app → **Android 13+ 会弹通知权限请求，务必允许**（否则事件提醒收不到）
-4. 去设置页填三项：
-   - **GitHub PAT**：[去这里生成一个](https://github.com/settings/tokens/new?scopes=repo)，选 `repo` 权限
-   - **Owner**：你的 GitHub 用户名
-   - **Repo**：你想存笔记的仓库名（提前建好，空仓库也行）
-5. 回笔记页或日历页开始用
+1. Download the latest public APK from [Releases](https://github.com/qqzlqqzlqqzl/memo-widget/releases). Current latest public release: **v0.12.19-p8**.
+2. Install the APK on Android. You may need to allow installation from unknown sources for the browser or file manager you use.
+3. On Android 13+, grant notification permission so event reminders can fire.
+4. Open Settings and configure:
+   - **GitHub PAT**: create one from [GitHub token settings](https://github.com/settings/tokens/new?scopes=repo) with `repo` scope.
+   - **Owner**: your GitHub username or organization.
+   - **Repo**: the repository where notes and events should be stored.
+5. Start writing notes or creating calendar events.
 
 ---
 
-## 数据是怎么存的
+## Data Model
 
-你的 GitHub 仓库会长这样：
+The user's GitHub repository stores plain Markdown notes and iCalendar files:
 
 ```
-<你的仓库>/
-├── 2026-04-21.md          # 当天的笔记，## HH:MM 分段
+<your-repo>/
+├── 2026-04-21.md          # Daily notes grouped by ## HH:MM
 ├── 2026-04-22.md
 ├── 2026-04-23.md
 └── events/
-    ├── 7f3c-4a2d.ics      # 一个日程一个文件（标准 iCalendar）
+    ├── 7f3c-4a2d.ics      # One standard iCalendar file per event
     └── 8b21-9c5e.ics
 ```
 
-**笔记文件** 打开来长这样：
+Example note file:
 
 ```markdown
 # 2026-04-21
 
 ## 14:30
-今天学了 Glance widget。
+Learned about Glance widgets.
 
 ## 15:12
-- 买菜
-- 跑步 30min
+- Buy groceries
+- Run for 30 minutes
 
 ## 18:05
-晚餐：凉面
+Dinner notes
 ```
 
-**日程文件** 打开来是标准 iCalendar（RFC 5545 兼容，含 line folding + UID escape），可以直接被 Google Calendar / 苹果日历订阅：
+Example iCalendar event:
 
 ```
 BEGIN:VCALENDAR
@@ -135,7 +133,7 @@ VERSION:2.0
 PRODID:-//memo-widget//EN
 BEGIN:VEVENT
 UID:7f3c-4a2d
-SUMMARY:团队周会
+SUMMARY:Weekly team meeting
 DTSTART:20260422T070000Z
 DTEND:20260422T080000Z
 RRULE:FREQ=WEEKLY
@@ -143,104 +141,92 @@ END:VEVENT
 END:VCALENDAR
 ```
 
-> 💡 **提醒设置（`reminderMinutesBefore`）是本地设备偏好，不写入 `.ics`**。换设备或新增设备要各自设一次。
+Reminder settings are local device preferences and are not written into `.ics` files.
 
 ---
 
-## 架构一览
+## Architecture
 
 ```
 ┌─────────────┐   ┌─────────────────┐   ┌──────────────┐   ┌─────────────────┐
-│  主 app UI  │   │  桌面小部件      │   │  WorkManager │   │  AlarmManager    │
-│  (4 tabs:   │   │  (Glance x2)    │   │  (后台同步)   │   │  (事件本地提醒)  │
-│ 笔记/标签/   │   │                 │   │              │   │                  │
-│  日历/设置) │   │                 │   │              │   │                  │
+│ Main app UI │   │ Home widgets    │   │  WorkManager │   │  AlarmManager    │
+│  (4 tabs:   │   │  (Glance x2)    │   │ background   │   │ local event     │
+│ notes/tags/ │   │                 │   │              │   │                  │
+│ calendar/   │   │                 │   │              │   │                  │
+│ settings)   │   │                 │   │              │   │                  │
 └──────┬──────┘   └────────┬────────┘   └──────┬───────┘   └────────┬────────┘
        └──────────┬────────┴────────────────────┴─────────────────────┘
                   ▼
           ┌─────────────────┐
-          │  Repository 层  │  本地优先：先写 Room，再推 GitHub
-          │  (Memo/Event)   │  + PathLocker 序列化同文件的并发写
+          │ Repository      │  Local first: write Room, then push GitHub
+          │  (Memo/Event)   │  + PathLocker serializes same-path writes
           └────────┬────────┘
                    ▼
            ┌──────────────┐
-           │     Room     │  ←── UI 数据唯一来源（schema v9）
+           │     Room     │  ←── Single source of truth for UI
            │  schema v9   │      notes + events + single_notes + indices
            └──────┬───────┘
-                  │ 脏行队列
+                  │ dirty queue
                   ▼
            ┌──────────────┐   HTTPS+PAT    ┌──────────┐
            │  Ktor CIO    │ ─────────────▶ │  GitHub  │
-           │  30s timeout │ ◀───────────── │  仓库    │
+           │  30s timeout │ ◀───────────── │  repo    │
            └──────────────┘                └──────────┘
 ```
 
-### 关键点
+### Key Design Points
 
-- **本地优先**：每次写笔记/日程，先写 Room 标记为 `dirty=1`，然后尝试立刻推 GitHub；失败则由 `PushWorker` 定时重试，UI 上显示"待同步"
-- **同步状态总线**：`SyncStatusBus`（进程内 StateFlow）发射 `Idle / Syncing / Ok / Error`；笔记页顶部的 `SyncBanner` 消费，失败显示错误码 + 一键关闭
-- **并发安全**：`PathLocker` 以 `filePath` 作锁，`appendToday` 和 `PushWorker` 对同一个 note/event 永远串行化
-- **CONFLICT 自愈**：PushWorker 遇到 409/422 会自动 `GET` 刷新 SHA 后重试一次（常见场景：另一台设备刚 push 过）
-- **Rate-limit 防御**：首次安装 bootstrap 每 cycle 至多 50 次 `GET`（笔记+事件各 50），剩下下轮继续；避免打爆 GitHub API 限额
-- **Ktor Timeout**：`requestTimeoutMillis=30s / connectTimeoutMillis=15s / socketTimeoutMillis=30s`，防止挂起的连接永久占着 Worker
-- **PAT 加密**：走 `EncryptedSharedPreferences` + Android Keystore 硬件加密；从老版本（P1 之前）明文 DataStore 自动迁移
-- **FLAG_SECURE**：设置页 PAT 明文可见时自动加屏蔽标记，截图/多任务窗口看不到
-- **事件提醒**：`AlarmScheduler.setExactAndAllowWhileIdle`（精确），系统拒绝精确时降级 `setAndAllowWhileIdle`（~15 分钟窗口）；循环事件响完自动排下一次，AlarmManager 只占 1 个 slot
-- **锁屏隐私**：通知 `VISIBILITY_PRIVATE` + public version 仅显示"日程提醒"，解锁后看完整
-- **冷启动安全**：`ServiceLocator.init` 幂等，每个 Worker / Receiver 首行都调一次，BootReceiver / AlarmReceiver 再早也不会 NPE
+- **Local-first writes**: notes and events are written to Room first, marked dirty, then pushed to GitHub.
+- **Retryable sync**: `PushWorker` retries failed pushes and refreshes SHA after common conflict responses.
+- **Path-level locking**: `PathLocker` serializes writes to the same note/event path.
+- **Rate-limit defense**: initial bootstrap limits GitHub API reads per cycle.
+- **HTTP timeouts**: Ktor requests use bounded request, connect, and socket timeouts.
+- **Secret storage**: GitHub PATs and AI API keys use Android Keystore-backed encrypted preferences.
+- **Screenshot protection**: secret-revealing screens use `FLAG_SECURE`.
+- **Reminder scheduling**: event reminders use `AlarmManager` with exact scheduling fallback.
+- **Cold-start safety**: workers and receivers initialize app services idempotently.
 
 ---
 
-## 开发/构建
+## Development
 
-环境：macOS + Android SDK (compileSdk 35) + JDK 17 + AGP 8.7.3
+Requirements: Android SDK with compileSdk 35, JDK 17, and Android Gradle Plugin 8.7.3.
 
 ```bash
-# 克隆
 git clone https://github.com/qqzlqqzlqqzl/memo-widget.git
 cd memo-widget
 
-# 构建
 ./gradlew :app:assembleDebug
-# APK 位于 app/build/outputs/apk/debug/app-debug.apk
-
-# 跑测试（24 项单元测试）
 ./gradlew :app:testDebugUnitTest
-
-# lint
 ./gradlew :app:lintDebug
-
-# Release 打包（需要 keystore；当前仅 debug apk 随 release 附）
 ./gradlew :app:assembleRelease
 ```
 
-**镜像 / 代理**：`settings.gradle.kts` 已配阿里云 Maven 镜像，`gradle-wrapper.properties` 用腾讯云下 Gradle。
+Debug APK output: `app/build/outputs/apk/debug/app-debug.apk`.
 
 ---
 
-## 版本历史
+## Release History
 
-| 版本 | 日期 | 亮点 |
+| Version | Date | Highlights |
 |---|---|---|
-| **v0.12.19-p8**（最新公开 release） | 2026-04-29 | R8 widget class keep 规则 + 可安装 release/debug APK |
-| v0.12.18-p8 | 2026-04-29 | 签名 APK 修复 |
+| **v0.12.19-p8** (latest public release) | 2026-04-29 | R8 widget class keep rules + installable release/debug APK |
+| v0.12.18-p8 | 2026-04-29 | Signed APK fix |
 | v0.12.17-p8 | 2026-04-28 | Lint cleanup wave 3 |
-| v0.12.1-p8 | 2026-04-23 | Memo widget 滚动列表 + 自动刷新 |
-| v0.11.0-p7 | 2026-04-23 | OpenAI-compatible AI 问答 |
-| v0.6.0-p4.1 | 2026-04-21 | 事件本地提醒（AlarmManager + POST_NOTIFICATIONS + 锁屏隐私） |
-| v0.5.0-p4 | 2026-04-21 | RRULE 循环事件（每周 / 每月） + Proguard release 规则 + 11 个 review issue 全关 |
-| v0.4.0-p3 | 2026-04-21 | 8 个 review issue 修复 + ICS 往返测试 |
-| v0.3.0-p2 | 2026-04-21 | 日历 + 日程 (`.ics`) + 今日清单 widget + 中文 README |
-| v0.2.0-p1 | 2026-04-21 | Room 离线缓存 + WorkManager 后台同步 + PAT 加密 + 底部导航 |
-| v0.1.0 | 初版 | 2×2 Memo widget + GitHub PUT 推送 |
+| v0.12.1-p8 | 2026-04-23 | Scrollable memo widget + automatic refresh |
+| v0.11.0-p7 | 2026-04-23 | OpenAI-compatible AI Q&A |
+| v0.6.0-p4.1 | 2026-04-21 | Local event reminders and lock-screen privacy |
+| v0.3.0-p2 | 2026-04-21 | Calendar, `.ics` events, and Today widget |
+| v0.2.0-p1 | 2026-04-21 | Room offline cache, WorkManager sync, encrypted PAT storage |
+| v0.1.0 | Initial | 2x2 memo widget + GitHub PUT sync |
 
 ---
 
-## 技术栈
+## Tech Stack
 
-Kotlin 2.0 · Jetpack Compose + Material 3 · Jetpack Glance 1.1.1 (widget · CVE-2024-7254 缓解) · **Room 2.6 schema v9** (本地库 · notes/events/single_notes/indices) · WorkManager 2.9 (后台同步) · **AlarmManager** (本地提醒) · Ktor CIO 2.3 + HttpTimeout (HTTP) · **EncryptedSharedPreferences** (PAT + AI key) · Navigation Compose 2.8 · [Kizitonwose Calendar](https://github.com/kizitonwose/Calendar) 2.6 (日历) · 自研精简 iCalendar (RFC 5545) 编解码器含 line folding + 字段 escape · `network_security_config.xml` (cleartext 默认禁止，仅放行 localhost loopback for Ollama)
+Kotlin 2.0 · Jetpack Compose + Material 3 · Jetpack Glance · Room schema v9 · WorkManager · AlarmManager · Ktor CIO · EncryptedSharedPreferences · Navigation Compose · [Kizitonwose Calendar](https://github.com/kizitonwose/Calendar) · lightweight iCalendar encoder/decoder · Android network security config.
 
-Room schema 迁移链：`v1 → v2` 加 events 表 · `v2 → v3` events.filePath 唯一索引 · `v3 → v4` events.rrule · `v4 → v5` events.reminderMinutesBefore · `v5 → v6` note_files.date 索引
+Room migration chain: `v1 -> v2` events table · `v2 -> v3` unique `events.filePath` index · `v3 -> v4` event RRULE · `v4 -> v5` reminder minutes · `v5 -> v6` `note_files.date` index.
 
 ---
 
@@ -250,38 +236,22 @@ Memo Widget is released under the MIT License. See [LICENSE](LICENSE).
 
 ---
 
-## 权限一览（AndroidManifest）
+## Android Permissions
 
-| 权限 | 用途 | 时机 |
+| Permission | Purpose | Timing |
 |---|---|---|
-| `INTERNET` | Ktor 走 HTTPS 访问 GitHub API | 始终 |
-| `POST_NOTIFICATIONS` | 发事件提醒 | Android 13+ 运行时请求（MainActivity.onCreate） |
-| `RECEIVE_BOOT_COMPLETED` | 开机后重排所有未来提醒 | 系统授权 |
-| `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` | 精确到分钟的事件提醒 | 系统通常自动授权，否则降级不精确 |
+| `INTERNET` | Access GitHub over HTTPS through Ktor. | Always required. |
+| `POST_NOTIFICATIONS` | Show event reminder notifications. | Runtime request on Android 13+. |
+| `RECEIVE_BOOT_COMPLETED` | Reschedule future reminders after reboot. | Granted by the system. |
+| `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` | Schedule minute-level event reminders. | Uses exact alarms when allowed, with fallback scheduling otherwise. |
 
 ---
 
-## 已知限制 / 仍开放的 issue
+## Roadmap
 
-截至 v0.6.0-p4.1，GitHub 仍有 **13 个 open issue**，大部分是 P4.1 自审发现但未触及主路径的改进项：
-
-- **#19 / #29 / #25** — 性能 & 防御性（bootstrap rate-limit 细化、笔记索引优化、listDir 错误穿透）
-- **#20** — Ktor HttpTimeout 已加（工作树未提交，下一个 session 的第一件事）
-- **#22 / #23** — EventEditDialog `rememberSaveable(null)` 会跨 session 残留状态；未知 RRULE 无选中状态
-- **#21** — SyncStatusBus 在 Worker 被系统杀掉时卡 Syncing
-- **#24** — POST_NOTIFICATIONS 永久拒绝后没有引导去系统设置
-- **#26 / #27** — GitHub 403 rate-limit 与 auth 403 无法区分；CONFLICT 已加 SHA 刷新（未提交）
-- **#28** — ICS line folding / RRULE escape（部分已加到未提交工作树）
-- **#30** — AppNav Notes tab 切换丢 ViewModel 状态
-- **#31** — CalendarViewModel 每次选日都重算 RRULE 展开（已修，未提交）
-
-> 🛠️ **工作树里已经有针对 #19/#20/#21/#22/#23/#27/#28/#29/#31 的修复代码** — 没 commit。详情见 [HANDOFF.md](HANDOFF.md)。
-
-### 下一阶段候选（P5）
-
-- 多设备同时改同一个 `YYYY-MM-DD.md` 的 CRDT 式合并
-- release 签名 APK + Play Store 适配
-- iCalendar VALARM 子块支持（把提醒写进 `.ics`，跨设备同步提醒）
-- RRULE UNTIL / COUNT / EXDATE（"重复到某天 / 重复 N 次 / 排除某天"）
-- 笔记多设备编辑的冲突解决 UI
-- 历史笔记懒加载（当前只拉最近 14 天，bootstrap 时才全量）
+- Multi-device conflict resolution for simultaneous edits to the same note file.
+- Proper release signing and Play Store packaging.
+- iCalendar `VALARM` support so reminders can sync across devices.
+- More complete RRULE support, including `UNTIL`, `COUNT`, and `EXDATE`.
+- Conflict resolution UI for multi-device note edits.
+- Lazy loading for older notes.
