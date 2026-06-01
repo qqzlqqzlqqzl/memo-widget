@@ -1,17 +1,24 @@
 # Memo Widget
 
-> 📌 **本仓库文档全部中文**。如果你看到英文内容，说明打开的不是本 README — 请先确认文件名。
+> 📌 **本仓库文档以中文为主**，但保留一小段英文摘要，方便开源项目审核和国际开发者快速了解项目。
 >
 > - 🟢 **普通用户** → 看 [USER_GUIDE.md《使用说明书》](USER_GUIDE.md)（不需要懂代码）
 > - 🛠️ **开发者 / 接手代码** → 看 [HANDOFF.md](HANDOFF.md)（当前架构 + 待办）
 > - 📜 **P0 历史设计** → [AGENT_SPEC.md](AGENT_SPEC.md)（已过期，仅存档用途）
 > - 📄 **本文**（README.md） → 技术总览，继续往下读
 
+## English summary for OSS reviewers
+
+Memo Widget is an MIT-licensed Android app for Git-backed personal notes and calendar data. It stores Markdown notes and iCalendar events in the user's own GitHub repository, supports offline-first sync, encrypted storage for GitHub PATs and AI API keys, and optional OpenAI-compatible Q&A over the user's notes. The repository includes releases, screenshots, CI, Dependabot, security reporting guidance, issue templates, changelog, and BDD-style maintenance notes.
+
+This is an early-stage project with small adoption, but it has real maintainer work: Android release hardening, sync conflict handling, secure token storage, dependency updates, bug triage, regression tests, and documentation for users and future contributors.
+
 一个后端是 **GitHub** 的 Android 笔记 + 日程 app。写的每一条笔记、每一个日程都会自动 commit 到你自己的 GitHub 仓库，多设备之间自动同步，离线也能用。**v0.11.0-p7 起**接入 AI 问答（任何 OpenAI-compatible endpoint：OpenAI / DeepSeek / ollama 等）；**v0.12.1-p8 起** Memo 小组件重做为"最近 20 条可滚动列表 + 自动刷新 + 手动刷新按钮"，笔记任何增删改都会立即反映到桌面；**v0.12.2-p8 → v0.12.21-p8** 包含 P8.1 closeout + P9-revisit 浪潮（约 60 条真实 fix）+ R8 install-failure 修复 + 设置面新增主题切换 / 日志导出 / 崩溃栈持久化 / 同步状态卡（详见 CHANGELOG 两条 entry）。
 
-[![release](https://img.shields.io/badge/release-v0.12.22--p8.4-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.12.22-p8.4)
-[![build](https://img.shields.io/badge/build-passing-brightgreen)]()
+[![release](https://img.shields.io/badge/latest%20release-v0.12.19--p8-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.12.19-p8)
+[![CI](https://github.com/qqzlqqzlqqzl/memo-widget/actions/workflows/ci.yml/badge.svg)](https://github.com/qqzlqqzlqqzl/memo-widget/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/badge/tests-3223%20passed-brightgreen)]()
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![kotlin](https://img.shields.io/badge/kotlin-2.0.21-blue)]()
 [![compose](https://img.shields.io/badge/compose-material3-blue)]()
 [![glance](https://img.shields.io/badge/glance-1.1.0-blue)]()
@@ -79,7 +86,7 @@
 
 ## 怎么装
 
-1. 去 [Releases](https://github.com/qqzlqqzlqqzl/memo-widget/releases) 下载最新的 `app-debug.apk`（当前最新：**v0.12.22-p8.4**）
+1. 去 [Releases](https://github.com/qqzlqqzlqqzl/memo-widget/releases) 下载最新公开发布的 APK（当前最新公开 release：**v0.12.19-p8**）
 2. 手机上点这个 apk → 系统会要求你在"设置 → 应用 → 特殊权限 → 安装未知来源"里给浏览器打勾
 3. 装好后打开 app → **Android 13+ 会弹通知权限请求，务必允许**（否则事件提醒收不到）
 4. 去设置页填三项：
@@ -215,7 +222,12 @@ cd memo-widget
 
 | 版本 | 日期 | 亮点 |
 |---|---|---|
-| **v0.6.0-p4.1**（最新） | 2026-04-21 | 事件本地提醒（AlarmManager + POST_NOTIFICATIONS + 锁屏隐私） |
+| **v0.12.19-p8**（最新公开 release） | 2026-04-29 | R8 widget class keep 规则 + 可安装 release/debug APK |
+| v0.12.18-p8 | 2026-04-29 | 签名 APK 修复 |
+| v0.12.17-p8 | 2026-04-28 | Lint cleanup wave 3 |
+| v0.12.1-p8 | 2026-04-23 | Memo widget 滚动列表 + 自动刷新 |
+| v0.11.0-p7 | 2026-04-23 | OpenAI-compatible AI 问答 |
+| v0.6.0-p4.1 | 2026-04-21 | 事件本地提醒（AlarmManager + POST_NOTIFICATIONS + 锁屏隐私） |
 | v0.5.0-p4 | 2026-04-21 | RRULE 循环事件（每周 / 每月） + Proguard release 规则 + 11 个 review issue 全关 |
 | v0.4.0-p3 | 2026-04-21 | 8 个 review issue 修复 + ICS 往返测试 |
 | v0.3.0-p2 | 2026-04-21 | 日历 + 日程 (`.ics`) + 今日清单 widget + 中文 README |
