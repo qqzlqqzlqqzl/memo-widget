@@ -9,6 +9,7 @@ The project is early-stage, but it has real open source maintenance surface area
 [![release](https://img.shields.io/badge/latest%20release-v0.12.19--p8-brightgreen)](https://github.com/qqzlqqzlqqzl/memo-widget/releases/tag/v0.12.19-p8)
 [![CI](https://github.com/qqzlqqzlqqzl/memo-widget/actions/workflows/ci.yml/badge.svg)](https://github.com/qqzlqqzlqqzl/memo-widget/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/badge/tests-3223%20passed-brightgreen)]()
+[![maintenance](https://img.shields.io/badge/maintained-2026--06--01-blue)](MAINTENANCE.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![kotlin](https://img.shields.io/badge/kotlin-2.0.21-blue)]()
 [![compose](https://img.shields.io/badge/compose-material3-blue)]()
@@ -17,11 +18,20 @@ The project is early-stage, but it has real open source maintenance surface area
 
 ---
 
+## Current Status
+
+Last maintenance review: **2026-06-01**.
+
+The repository has a public MIT license, CI, Dependabot, security reporting guidance, contribution docs, issue templates, PR templates, release notes, screenshots, and an explicit [maintenance status](MAINTENANCE.md). The next work is focused on release signing, sync conflict handling, iCalendar reminder support, and real-device widget screenshot refresh.
+
+---
+
 ## Documentation
 
 - [User guide](USER_GUIDE.md): end-user setup and usage notes.
 - [Maintainer handoff](HANDOFF.md): architecture, current state, and maintenance notes.
 - [Changelog](CHANGELOG.md): release history and regression context.
+- [Maintenance status](MAINTENANCE.md): current focus, maintainer responsibilities, and next release candidates.
 - [Security policy](SECURITY.md): private vulnerability reporting and security design notes.
 - [Contributing guide](CONTRIBUTING.md): development setup and pull request expectations.
 
