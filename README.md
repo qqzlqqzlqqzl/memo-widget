@@ -232,6 +232,12 @@ Room schema 迁移链：`v1 → v2` 加 events 表 · `v2 → v3` events.filePat
 
 ---
 
+## License
+
+Memo Widget is released under the MIT License. See [LICENSE](LICENSE).
+
+---
+
 ## 权限一览（AndroidManifest）
 
 | 权限 | 用途 | 时机 |
