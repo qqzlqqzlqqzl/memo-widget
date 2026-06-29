@@ -34,7 +34,7 @@ jobs:
           java-version: '17'
 
       - name: Cache Gradle
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches
@@ -80,7 +80,7 @@ jobs:
           java-version: '17'
 
       - name: Cache Gradle
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches
@@ -121,7 +121,7 @@ jobs:
           java-version: '17'
 
       - name: Cache Gradle
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches
@@ -220,7 +220,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Cache Gradle
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches
