@@ -1,5 +1,5 @@
 [versions]
-agp = "8.10.1"
+agp = "9.3.0"
 # KSP version-locked to Kotlin via the `<kotlin>-<ksp>` suffix.
 # Bumping Kotlin → bump KSP to the matching `<kotlin>-<ksp>` release.
 kotlin = "2.0.21"
